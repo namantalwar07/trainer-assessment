@@ -1,0 +1,22 @@
+# Render Blueprint: one Docker web service with a persistent disk (videos, database, reports).
+services:
+  - type: web
+    name: trainer-assessment
+    runtime: docker
+    plan: standard          # 2 GB RAM; 'starter' (512 MB) is too small for FFmpeg on long recordings
+    region: singapore       # closest Render region to India
+    healthCheckPath: /healthz
+    disk:
+      name: data
+      mountPath: /srv/data
+      sizeGB: 30
+    envVars:
+      - {key: PORT, value: "8000"}
+      - {key: MOCK_GEMINI, value: "false"}
+      - {key: GEMINI_API_KEY, sync: false}      # paste in the Render dashboard, never in git
+      - {key: SESSION_SECRET, generateValue: true}
+      - {key: COOKIE_SECURE, value: "true"}
+      - {key: DATA_DIR, value: /srv/data}
+      - {key: DELETE_VIDEO_AFTER_ASSESSMENT, value: "true"}   # keeps the disk from filling up
+      - {key: ADMIN_EMAIL, sync: false}
+      - {key: ADMIN_PASSWORD, sync: false}                    # first login only; delete after signing in

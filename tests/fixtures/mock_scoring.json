@@ -1,0 +1,48 @@
+{
+  "_note": "DUMMY FIXTURE used by MOCK_GEMINI=true. Ratings are nudged deterministically per video id by the mock engine.",
+  "video_id": "VID-0000",
+  "trainer_id": "TR-000",
+  "primary_language": "Hindi",
+  "duration_minutes": 75,
+  "competencies": [
+    {"criterion_id": "C01", "weight": 20, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:25:15", "observation": "Explains cash flow with a relevant local example consistent with the module reference", "assessment": "Strong"}],
+     "strengths": ["Accurate explanation of cost concepts"], "improvement": "Link each concept back to the stated learning outcome", "confidence": "High"},
+    {"criterion_id": "C02", "weight": 10, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:00:40", "observation": "Shares agenda at the start and signals transitions", "assessment": "Strong"}],
+     "strengths": ["Clear agenda"], "improvement": "Add a short bridge sentence between topics", "confidence": "High"},
+    {"criterion_id": "C03", "weight": 15, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:08:00", "observation": "Steady pace; explanations were understandable to the audience", "assessment": "Strong"}],
+     "strengths": ["Comprehensible delivery"], "improvement": "Pause after key terms", "confidence": "Medium"},
+    {"criterion_id": "C04", "weight": 10, "rating": 3, "na": false,
+     "evidence": [{"timestamp": "00:05:00", "observation": "Faces the group; slides visible", "assessment": "Competent"}],
+     "strengths": ["Confident stance"], "improvement": "Vary voice modulation on key points", "confidence": "Medium"},
+    {"criterion_id": "C05", "weight": 15, "rating": 3, "na": false,
+     "evidence": [
+       {"timestamp": "00:12:30", "observation": "Participant asks how to price a new product; trainer responds relevantly", "assessment": "Competent"},
+       {"timestamp": "00:13:30", "observation": "Trainer checks understanding by asking the participant to restate", "assessment": "Strong"}],
+     "strengths": ["Responsive to questions"], "improvement": "Invite questions proactively rather than waiting", "confidence": "Medium"},
+    {"criterion_id": "C06", "weight": 10, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:25:15", "observation": "Worked example using a local tea stall", "assessment": "Strong"}],
+     "strengths": ["Relevant MSME example"], "improvement": "Add a short participant exercise", "confidence": "High"},
+    {"criterion_id": "C07", "weight": 5, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:20:10", "observation": "Moves on to pricing on schedule", "assessment": "Strong"}],
+     "strengths": ["Stayed on agenda"], "improvement": "Reserve buffer time for questions", "confidence": "Medium"},
+    {"criterion_id": "C08", "weight": 5, "rating": 3, "na": false,
+     "evidence": [{"timestamp": "00:13:30", "observation": "Rephrases the answer in simpler terms after the question", "assessment": "Competent"}],
+     "strengths": ["Adapts wording"], "improvement": "Check in with quieter participants", "confidence": "Medium"},
+    {"criterion_id": "C09", "weight": 5, "rating": 4, "na": false,
+     "evidence": [{"timestamp": "00:05:00", "observation": "Materials prepared and used smoothly", "assessment": "Strong"}],
+     "strengths": ["Prepared"], "improvement": "None significant", "confidence": "High"},
+    {"criterion_id": "C10", "weight": 5, "rating": 3, "na": false,
+     "evidence": [{"timestamp": "00:30:00", "observation": "Brief recap of three key points near the end", "assessment": "Competent"}],
+     "strengths": ["Recap delivered"], "improvement": "Close with a knowledge check and next steps", "confidence": "Medium"}
+  ],
+  "top_strengths": ["Relevant local examples", "Clear structure", "Responsive to questions"],
+  "development_areas": ["Proactive participant engagement", "Closing knowledge check"],
+  "coaching_plan": [
+    {"action": "Add two planned knowledge-check questions per topic block", "competency": "C05", "priority": "High"},
+    {"action": "End each session with a 3-question quick quiz and next steps", "competency": "C10", "priority": "Medium"}
+  ],
+  "critical_flags": []
+}

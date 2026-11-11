@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% from "_macros.html" import band, status %}{% set nav='sessions' %}{% block title %}Sessions{% endblock %}
+{% block head %}{% if busy %}<meta http-equiv="refresh" content="10">{% endif %}{% endblock %}
+{% block body %}
+<div class="row" style="margin-bottom:14px"><div class="grow"><h1>Sessions</h1><p class="sub" style="margin:0">{% if busy %}Processing in progress. This page refreshes every 10 seconds.{% else %}All uploaded recordings and their assessment status.{% endif %}</p></div>
+{% if user.role in ('operator','admin') %}<a class="btn" href="/upload">Upload recordings</a>{% endif %}</div>
+<div class="tiles">
+<div class="tile"><b>{{ stats.total }}</b><span>Recordings</span></div>
+<div class="tile"><b>{{ stats.done }}</b><span>Assessed</span></div>
+<div class="tile"><b>{{ stats.active }}</b><span>In progress</span></div>
+<div class="tile"><b class="{{ 'bad' if stats.problem }}">{{ stats.problem }}</b><span>Failed or quarantined</span></div>
+{% if can_score %}<div class="tile"><b class="{{ 'warn' if stats.review }}">{{ stats.review }}</b><span>Need human review</span></div>
+<div class="tile"><b>{{ stats.avg if stats.avg is not none else '–' }}</b><span>Average score</span></div>{% endif %}
+</div>
+<div class="card">
+{% if not rows %}<div class="empty"><h2>No recordings yet</h2>{% if user.role in ('operator','admin') %}<p>Upload your first recording to get started.</p><a class="btn" href="/upload">Upload recordings</a>{% endif %}</div>{% else %}
+<div class="row" style="margin-bottom:12px"><input class="grow" type="text" id="q" placeholder="Search by video, file, trainer, module…" style="max-width:380px">
+<select id="f" style="width:auto"><option value="">All statuses</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>quarantined</option>{% if can_score %}<option value="review">Needs review</option>{% endif %}</select></div>
+<div class="tbl-wrap"><table id="t"><thead><tr><th>Video</th><th>Trainer</th><th>Module</th><th>Language</th><th>Status</th>
+{% if can_score %}<th>Score</th><th>Band</th><th>Effective time</th>{% endif %}<th>Est. cost</th><th></th></tr></thead><tbody>
+{% for r in rows %}{% set s=r.s %}{% set a=r.a %}{% set j=r.job %}
+<tr data-status="{{ s.status }}" data-review="{{ 1 if a and a.human_review_required else 0 }}" data-text="{{ (s.video_id ~ ' ' ~ s.original_filename ~ ' ' ~ s.trainer.trainer_code ~ ' ' ~ (s.trainer.name or '') ~ ' ' ~ s.module_code ~ ' ' ~ s.language ~ ' ' ~ s.state)|lower }}">
+<td><b>{{ s.video_id }}</b><br><small>{{ s.original_filename }}</small></td>
+<td>{{ s.trainer.trainer_code }}{% if s.trainer.name %}<br><small>{{ s.trainer.name }}</small>{% endif %}</td>
+<td>{{ s.module_code }}<br><small>{{ s.state }}{% if s.city %} · {{ s.city }}{% endif %}</small></td><td>{{ s.language }}</td>
+<td>{{ status(s.status) }}{% if j and j.error %}<br><small class="bad">{{ j.error[:200] }}</small>{% endif %}
+{% if s.validation and s.validation.warnings %}<br><small class="warn">{{ s.validation.warnings|join('; ') }}</small>{% endif %}</td>
+{% if can_score %}
+<td>{% if a and a.overall_score is not none %}<b>{{ a.overall_score }}</b>{% endif %}</td>
+<td>{% if a %}{{ band(a.band) }}{% if a.human_review_required %}<br><span class="pill warn" style="margin-top:4px">Review needed</span>{% endif %}{% endif %}</td>
+<td>{% if a and a.time_analysis %}{% set ta=a.time_analysis %}<b class="{{ 'bad' if not ta.meets_threshold }}">{{ '%.0f'|format(ta.effective_seconds/60) }} min</b>{% if ta.flagged_gaps %}<br><span class="pill bad" style="margin-top:4px">{{ ta.flagged_gaps }} long pause{{ 's' if ta.flagged_gaps != 1 }}</span>{% endif %}{% endif %}</td>{% endif %}
+<td><small>{% if j and j.cost_usd is not none %}₹{{ '%.2f'|format(j.cost_usd * settings.usd_inr) }}{% endif %}</small></td>
+<td style="white-space:nowrap;text-align:right">
+{% if a and can_score %}<a class="btn sm" href="/assessments/{{ a.id }}">Open</a>{% endif %}
+{% if s.status=='failed' and user.role in ('operator','admin') %}<form class="inline" method="post" action="/sessions/{{ s.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost sm">Retry</button></form>{% endif %}
+{% if user.role=='admin' and s.status!='running' %}<form class="inline" method="post" action="/sessions/{{ s.id }}/delete" onsubmit="return confirm('Permanently delete {{ s.video_id }}: video, report, scores and evidence?')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger sm">Delete</button></form>{% endif %}
+</td></tr>{% endfor %}</tbody></table></div>
+<p class="small" id="none" hidden>No recordings match.</p>
+<script>
+const q=document.getElementById('q'),f=document.getElementById('f'),rows=[...document.querySelectorAll('#t tbody tr')];
+function apply(){const t=q.value.trim().toLowerCase(),s=f.value;let n=0;rows.forEach(r=>{const ok=(!t||r.dataset.text.includes(t))&&(!s||(s==='review'?r.dataset.review==='1':r.dataset.status===s));r.hidden=!ok;n+=ok});document.getElementById('none').hidden=n>0}
+q.addEventListener('input',apply);f.addEventListener('change',apply);
+</script>{% endif %}
+</div>
+{% endblock %}

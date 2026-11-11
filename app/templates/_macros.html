@@ -1,0 +1,8 @@
+{% macro band(b) -%}
+{%- set c = {'Excellent':'ok','Good':'good','Satisfactory':'warn','Needs improvement':'warn','Unsatisfactory':'bad'}.get(b,'') -%}
+<span class="pill {{ c }}">{{ b }}</span>
+{%- endmacro %}
+{% macro status(s) -%}
+{%- set c = {'completed':'ok','failed':'bad','quarantined':'bad','running':'good run','queued':''}.get(s,'') -%}
+<span class="pill {{ c }}">{{ s|capitalize }}</span>
+{%- endmacro %}

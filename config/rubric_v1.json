@@ -1,0 +1,40 @@
+{
+  "version": "rubric_v1",
+  "criteria": [
+    {"id": "C01", "name": "Subject knowledge and accuracy", "weight": 20, "primary_evidence": "Content/transcript",
+     "description": "Accuracy, command over topic, ability to explain concepts. Judge ONLY against the supplied module reference content and expected learning outcomes; if none is supplied this criterion is N/A. Flag factual errors separately from acceptable simplifications."},
+    {"id": "C02", "name": "Training structure and flow", "weight": 10, "primary_evidence": "Content/transcript",
+     "description": "Opening, agenda, sequencing, transitions and logical progression."},
+    {"id": "C03", "name": "Communication effectiveness", "weight": 15, "primary_evidence": "Audio",
+     "description": "Clarity, articulation, appropriate language, comprehensibility. Judge comprehension, never accent or conformity to English."},
+    {"id": "C04", "name": "Trainer presentation and delivery", "weight": 10, "primary_evidence": "Visual + audio",
+     "description": "Confidence, posture, voice modulation, visual presentation. Observable behaviour only."},
+    {"id": "C05", "name": "Participant engagement", "weight": 15, "primary_evidence": "Interaction",
+     "description": "Questions, responses, interaction, participation opportunities. Assess actual interaction, not the number of questions asked."},
+    {"id": "C06", "name": "Practical application and demonstrations", "weight": 10, "primary_evidence": "Visual + content",
+     "description": "MSME examples, demonstrations, exercises, case studies."},
+    {"id": "C07", "name": "Time and session management", "weight": 5, "primary_evidence": "Audio",
+     "description": "Pacing, time allocation, discipline and coverage."},
+    {"id": "C08", "name": "Inclusivity and audience adaptability", "weight": 5, "primary_evidence": "Interaction",
+     "description": "Encouragement, accessibility, adapting explanations to learners."},
+    {"id": "C09", "name": "Professionalism and technical delivery", "weight": 5, "primary_evidence": "Visual",
+     "description": "Preparedness, appropriate use of materials. Do not penalise audio/video quality outside the trainer's control."},
+    {"id": "C10", "name": "Recap and learning closure", "weight": 5, "primary_evidence": "Content",
+     "description": "Summary, key takeaways, knowledge checks and next steps."}
+  ],
+  "anchors": {
+    "0": "Not demonstrated (only used when SCORE_FLOOR_MODE=zero_anchor; distinct from N/A)",
+    "1": "Poor - competency largely absent or serious deficiencies",
+    "2": "Weak - demonstrated inconsistently; significant gaps",
+    "3": "Competent - meets the minimum expected standard",
+    "4": "Strong - consistently effective, with minor improvement areas",
+    "5": "Excellent - highly effective, consistent and exemplary"
+  },
+  "bands": [
+    {"min": 90, "label": "Excellent", "action": "Recognition and knowledge sharing"},
+    {"min": 75, "label": "Good", "action": "Targeted coaching"},
+    {"min": 60, "label": "Satisfactory", "action": "Structured improvement plan"},
+    {"min": 40, "label": "Needs improvement", "action": "Focused coaching and reassessment"},
+    {"min": 0, "label": "Unsatisfactory", "action": "Detailed human review and retraining"}
+  ]
+}

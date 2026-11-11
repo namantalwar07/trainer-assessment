@@ -1,0 +1,40 @@
+# Company deployment: PostgreSQL + app + Caddy (automatic HTTPS). Usage:
+#   cp .env.example .env   (set GEMINI_API_KEY, SESSION_SECRET, POSTGRES_PASSWORD, SITE_ADDRESS)
+#   docker compose up -d --build
+#   docker compose exec app python scripts/create_user.py you@company.com admin
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trainer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: trainer_assessment
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trainer -d trainer_assessment"]
+      interval: 10s
+      retries: 5
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: {db: {condition: service_healthy}}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://trainer:${POSTGRES_PASSWORD}@db:5432/trainer_assessment
+      DATA_DIR: /srv/data
+      COOKIE_SECURE: "true"
+      MOCK_GEMINI: "false"
+    volumes: [appdata:/srv/data]
+    expose: ["8000"]
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+volumes: {pgdata: {}, appdata: {}, caddydata: {}}

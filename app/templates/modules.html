@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% set nav='modules' %}{% block title %}Modules{% endblock %}
+{% block body %}
+<h1>Module reference content</h1><p class="sub">C01 (subject knowledge and accuracy) is scored <b>only</b> against this content. The code must equal the MODULE part of the file name. Without reference content, C01 is N/A and the session goes to human review.</p>
+<div class="grid2"><div class="card"><h2>Add or update a module</h2>
+<form method="post" action="/admin/modules"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Module code (as in the file name, e.g. BUSINESSFUNDAMENTALS)</label><input type="text" name="code" required pattern="[A-Za-z0-9]+" maxlength="40">
+<label>Display name</label><input type="text" name="name">
+<label>Expected learning outcomes</label><textarea name="learning_outcomes" rows="4"></textarea>
+<label>Reference content (the correct facts the trainer should teach)</label><textarea name="reference_content" rows="10"></textarea>
+<p><button>Save module</button></p></form></div>
+<div class="card"><h2>Existing modules</h2><div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Reference</th><th>Updated</th></tr></thead><tbody>
+{% for m in modules %}<tr><td><b>{{ m.code }}</b></td><td>{{ m.name }}</td><td>{% if m.reference_content.strip() %}<span class="pill ok">{{ m.reference_content|length }} chars</span>{% else %}<span class="pill warn">missing</span>{% endif %}</td><td>{{ m.updated_at.strftime('%Y-%m-%d') }}</td></tr>
+{% else %}<tr><td colspan="4" class="mute">No modules yet.</td></tr>{% endfor %}</tbody></table></div>
+<p class="small">To edit a module, save it again with the same code (the form replaces its content).</p></div></div>
+{% endblock %}

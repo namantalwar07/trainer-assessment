@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+sample_videos/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+samples/
+*.mp4
+*.mov
+.DS_Store

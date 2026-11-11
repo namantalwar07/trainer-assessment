@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% set nav='trainers' %}{% block title %}Trainers{% endblock %}
+{% block body %}
+<h1>Trainers</h1><p class="sub">Trainers are created automatically from file names. Add names here so reports and the Excel workbook show them.</p>
+<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Trainer ID</th><th>Sessions</th><th>Name</th><th></th></tr></thead><tbody>
+{% for t in trainers %}<tr><td><b>{{ t.trainer_code }}</b><form id="tf{{ t.id }}" method="post" action="/admin/trainers/{{ t.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"></form></td>
+<td>{{ counts.get(t.id, 0) }}</td><td><input form="tf{{ t.id }}" type="text" name="name" value="{{ t.name }}" maxlength="255" placeholder="Full name"></td><td><button form="tf{{ t.id }}" class="ghost sm">Save</button></td></tr>
+{% else %}<tr><td colspan="4" class="mute">No trainers yet. They appear after the first upload.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

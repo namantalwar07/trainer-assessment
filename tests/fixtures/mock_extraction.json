@@ -1,0 +1,113 @@
+{
+  "session_summary": "DUMMY FIXTURE: a trainer introduces business fundamentals to a group of MSME participants, uses a cash-flow example, takes questions and closes with a recap.",
+  "structure": {
+    "opening": "00:00:40 - welcome and agenda shared",
+    "agenda_shared": true,
+    "transitions": [
+      "00:20:10 - moves from costing to pricing"
+    ],
+    "closing": "00:00:00 - recap near the end"
+  },
+  "topics": [
+    {
+      "start": "00:01:00",
+      "end": "00:20:00",
+      "topic": "Costing basics",
+      "key_points": [
+        "fixed vs variable cost"
+      ]
+    },
+    {
+      "start": "00:20:00",
+      "end": "00:40:00",
+      "topic": "Pricing",
+      "key_points": [
+        "margin",
+        "break-even"
+      ]
+    }
+  ],
+  "transcript_segments": [
+    {
+      "timestamp": "00:00:40",
+      "speaker": "trainer",
+      "text": "Welcome. Today we cover costing and pricing."
+    },
+    {
+      "timestamp": "00:12:30",
+      "speaker": "participant",
+      "text": "How do I price a new product?"
+    },
+    {
+      "timestamp": "00:12:45",
+      "speaker": "trainer",
+      "text": "Start from your unit cost, then add a margin."
+    }
+  ],
+  "interaction_events": [
+    {
+      "timestamp": "00:12:30",
+      "type": "participant_question",
+      "detail": "Asks how to price a new product"
+    },
+    {
+      "timestamp": "00:12:45",
+      "type": "trainer_responds_relevantly",
+      "detail": "Explains cost-plus pricing"
+    },
+    {
+      "timestamp": "00:13:30",
+      "type": "trainer_checks_understanding",
+      "detail": "Asks the participant to restate"
+    }
+  ],
+  "demonstrations_and_examples": [
+    {
+      "timestamp": "00:25:15",
+      "detail": "Worked cash-flow example using a local tea stall"
+    }
+  ],
+  "visual_observations": [
+    {
+      "timestamp": "00:05:00",
+      "detail": "Slides visible; trainer faces the group"
+    }
+  ],
+  "audio_observations": [
+    {
+      "timestamp": "00:08:00",
+      "detail": "Steady pace; explanations understandable"
+    }
+  ],
+  "time_management": {
+    "planned_vs_actual": "Agenda covered",
+    "notes": []
+  },
+  "recap_and_closure": [
+    {
+      "timestamp": "00:00:00",
+      "detail": "Recap of three key points"
+    }
+  ],
+  "possible_factual_issues": [],
+  "recording_limitations": [],
+  "instruction_like_content": [],
+  "possible_conduct_concerns": [],
+  "activity_timeline": [
+    {
+      "start": "00:00:00",
+      "end": "01:15:00",
+      "state": "teaching",
+      "note": "DUMMY FIXTURE"
+    }
+  ],
+  "participants": [
+    {
+      "name": "Dummy Mentee One",
+      "first_seen": "00:01:00",
+      "source": "introduction",
+      "confidence": "High"
+    }
+  ],
+  "conduct_events": []
+}

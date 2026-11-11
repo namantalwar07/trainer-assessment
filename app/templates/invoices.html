@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% set nav='invoices' %}{% block title %}Invoices{% endblock %}
+{% block body %}
+<h1>Invoice sheet</h1><p class="sub">Each recording is checked against its invoiced session (date and time). Import your invoice sheet as CSV; recordings are linked automatically when the trainer and date match exactly one row, or you can link one by hand.</p>
+{% if msg %}<div class="banner" style="border-color:var(--ok)"><span class="ok">{{ msg }}</span></div>{% endif %}
+{% if err %}<div class="banner alert"><strong>Some rows were not imported</strong><pre style="margin:6px 0 0;white-space:pre-wrap;font:inherit">{{ err }}</pre></div>{% endif %}
+<div class="grid2">
+<div class="card"><h2>Import CSV</h2>
+<form method="post" action="/invoices/import" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="file" name="file" accept=".csv,text/csv" required>
+<p class="small">Needed columns (names are flexible): invoice row, mentor (or trainer ID), date, invoiced start and end (or one "invoiced time" column like <code>1:56-3:26 PM</code>); optional MSME. Re-importing updates rows in place.</p>
+<p><button>Import</button> <a class="btn ghost" href="/invoices/template.csv">Download template</a></p></form></div>
+<div class="card"><h2>Add one row</h2>
+<form method="post" action="/invoices/add"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div class="grow"><label style="margin-top:0">Invoice row</label><input type="text" name="invoice_row" inputmode="numeric" required></div>
+<div class="grow"><label style="margin-top:0">Date</label><input type="text" name="date" placeholder="13 Aug 2026" required></div></div>
+<div class="row"><div class="grow"><label>Mentor name</label><input type="text" name="mentor"></div><div class="grow"><label>Trainer ID (optional)</label><input type="text" name="trainer_id" placeholder="TR-001"></div></div>
+<label>MSME</label><input type="text" name="msme">
+<div class="row"><div class="grow"><label>Invoiced start</label><input type="text" name="start" placeholder="1:56 PM" required></div><div class="grow"><label>Invoiced end</label><input type="text" name="end" placeholder="3:26 PM" required></div></div>
+<p><button>Save row</button></p></form></div></div>
+{% if unlinked %}<div class="card"><h2>Recordings without an invoice row</h2>
+<div class="tbl-wrap"><table><thead><tr><th>Video</th><th>Trainer</th><th>Date</th><th>Link to invoice row</th></tr></thead><tbody>
+{% for s in unlinked %}<tr><td><b>{{ s.video_id }}</b><br><small>{{ s.original_filename }}</small></td><td>{{ s.trainer.trainer_code }}{% if s.trainer.name %}<br><small>{{ s.trainer.name }}</small>{% endif %}</td><td>{{ s.session_date }}</td>
+<td><form class="inline row" method="post" action="/sessions/{{ s.id }}/invoice"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="text" name="invoice_row" inputmode="numeric" placeholder="Row no." style="width:100px" required><button class="ghost sm">Link</button></form></td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+<div class="card"><h2>Imported rows ({{ entries|length }})</h2>
+{% if entries %}<div class="tbl-wrap"><table><thead><tr><th>Row</th><th>Date</th><th>Mentor</th><th>MSME</th><th>Invoiced time</th><th>Recording</th></tr></thead><tbody>
+{% for e in entries %}<tr><td><b>{{ e.invoice_row }}</b></td><td>{{ e.session_date }}</td><td>{{ e.mentor_name }}{% if e.trainer_code %}<br><small>{{ e.trainer_code }}</small>{% endif %}</td><td>{{ e.msme_name }}</td>
+<td>{{ '%d:%02d'|format(e.start_seconds//3600, e.start_seconds%3600//60) }}–{{ '%d:%02d'|format(e.end_seconds//3600, e.end_seconds%3600//60) }} ({{ ((e.end_seconds-e.start_seconds)/60)|round|int }} min)</td>
+<td>{% if linked.get(e.id) %}<span class="pill ok">{{ linked[e.id].video_id }}</span>{% else %}<span class="pill">not linked</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="mute">No invoice rows yet.</p>{% endif %}</div>
+{% endblock %}

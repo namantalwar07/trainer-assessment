@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}Upload result{% endblock %}
+{% block body %}
+<div class="card"><h1>Upload result</h1><div class="tbl-wrap"><table><tr><th>File</th><th>Result</th><th>Video ID</th></tr>
+{% for r in results %}<tr><td>{{ r.filename }}</td><td class="{{ 'ok' if r.ok else 'bad' }}">{{ r.message }}</td><td>{{ r.video_id or '' }}</td></tr>{% endfor %}</table></div>
+<p><a class="btn" href="/sessions">View sessions</a> <a class="btn ghost" href="/upload">Upload more</a></p></div>
+{% endblock %}

@@ -1,0 +1,10 @@
+.venv
+data
+samples
+sample_videos
+__pycache__
+.env
+.git
+tests/*
+!tests/fixtures
+*.pyc

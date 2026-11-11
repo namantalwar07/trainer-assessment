@@ -1,0 +1,72 @@
+{% extends "base.html" %}{% set nav='upload' %}{% block title %}Upload{% endblock %}
+{% block body %}
+<h1>Upload recordings</h1><p class="sub">MP4 or MOV, up to {{ max_mb }} MB each. Each file is checked, uploaded with its own progress bar, and queued for assessment automatically.</p>
+{% if no_ref %}<div class="banner alert"><strong>Reference content missing for: {{ no_ref|join(', ') }}.</strong> Their C01 (subject accuracy) will be N/A and routed to human review. Ask an admin to add it under Modules.</div>{% endif %}
+<div class="card">
+<div class="row" style="margin-bottom:14px">
+<div class="grow"><label style="margin-top:0">Default language for added files</label><select id="lang">{% for l in languages %}<option>{{ l }}</option>{% endfor %}</select></div>
+<div class="grow"><label style="margin-top:0">City (optional, applies to all)</label><input type="text" id="city" maxlength="100"></div></div>
+<div class="row" style="margin-bottom:14px">
+<div class="grow"><label style="margin-top:0">Trainer ID (optional)</label><input type="text" id="trainer" maxlength="12" placeholder="e.g. 12 or TR-012"></div>
+<div class="grow"><label style="margin-top:0">Module (optional)</label><input type="text" id="module" maxlength="40" placeholder="e.g. BUSINESSFUNDAMENTALS"></div>
+<div class="grow"><label style="margin-top:0">Session date (optional)</label><input type="date" id="sdate"></div></div>
+<div class="drop" id="drop" tabindex="0"><b>Drop recordings here</b><br><span class="mute">or click to choose files</span>
+<input type="file" id="pick" accept=".mp4,.mov,video/mp4,video/quicktime" multiple hidden></div>
+<p class="small">Any file name works. Trainer, module and date above apply to every file in this batch; leave them blank to use today's date and an unassigned trainer. A name in the format <code>STATE_MODULE_TRAINERID_SESSIONID_DATE.mp4</code> still fills these in automatically. You can change each file's language and enter its invoice row below before uploading (the row is matched automatically when left blank and the trainer and date match one row).</p>
+<div class="tbl-wrap" id="listwrap" hidden><table><thead><tr><th>File</th><th>Language</th><th>Invoice row</th><th style="min-width:220px">Progress</th><th></th></tr></thead><tbody id="list"></tbody></table></div>
+<div class="row" style="margin-top:14px" id="actions" hidden><button id="go">Upload all</button><button class="ghost" id="clear">Clear list</button><span class="small" id="summary"></span></div>
+</div>
+<div class="card"><h2>Checklist before uploading</h2><ul class="mute" style="margin:0;padding-left:18px">
+<li>Recording has working audio and covers the whole session (typically 60–90 minutes).</li>
+<li>Trainer ID and session date are filled in above (or from a standard file name). They are used to match the invoice sheet.</li>
+<li>Training module content has been added by an admin (otherwise subject accuracy is not scored).</li></ul></div>
+<script>
+const MAX={{ settings.max_upload_bytes }};
+const csrf=document.querySelector('meta[name=csrf]').content, $=id=>document.getElementById(id);
+const langs={{ languages|tojson }}; let items=[], busy=false;
+const fmt=b=>b>=1e9?(b/1e9).toFixed(2)+' GB':(b/1e6).toFixed(0)+' MB';
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function add(files){for(const f of files){
+  if(items.some(i=>i.file.name===f.name&&i.file.size===f.size))continue;
+  let err=null; if(!/\.(mp4|mov)$/i.test(f.name))err='Only .mp4 or .mov files are accepted';
+  else if(f.size>MAX)err='Larger than the '+fmt(MAX)+' limit'; else if(f.size<1024)err='File is empty';
+  items.push({file:f,lang:$('lang').value,row:'',state:err?'error':'ready',msg:err||'Ready',pct:0});}
+  render();}
+function render(){$('listwrap').hidden=$('actions').hidden=!items.length;
+  $('list').innerHTML=items.map((it,i)=>`<tr><td><b>${esc(it.file.name)}</b><br><small>${fmt(it.file.size)}</small></td>
+  <td><select data-i="${i}" ${it.state==='ready'||it.state==='retry'?'':'disabled'}>${langs.map(l=>`<option${l===it.lang?' selected':''}>${esc(l)}</option>`).join('')}</select></td>
+  <td><input type="text" inputmode="numeric" data-row="${i}" value="${esc(it.row)}" placeholder="optional" style="width:90px" ${it.state==='ready'||it.state==='retry'?'':'disabled'}></td>
+  <td><div class="bar"><i style="width:${it.pct}%;${it.state==='error'?'background:var(--bad)':it.state==='done'?'background:var(--ok)':''}"></i></div>
+  <small class="${it.state==='error'||it.state==='retry'?'bad':it.state==='done'?'ok':''}">${esc(it.msg)}</small></td>
+  <td>${it.state==='ready'||it.state==='error'||it.state==='retry'?`<button class="ghost sm" data-rm="${i}">Remove</button>`:''}</td></tr>`).join('');
+  const ready=items.filter(i=>i.state==='ready'||i.state==='retry').length, done=items.filter(i=>i.state==='done').length;
+  $('go').disabled=busy||!ready; $('summary').textContent=`${done} uploaded · ${ready} waiting · ${items.filter(i=>i.state==='error').length} rejected`;}
+$('list').addEventListener('change',e=>{if(e.target.dataset.i!==undefined)items[+e.target.dataset.i].lang=e.target.value});
+$('list').addEventListener('input',e=>{if(e.target.dataset.row!==undefined)items[+e.target.dataset.row].row=e.target.value.replace(/\D/g,'')});
+$('list').addEventListener('click',e=>{if(e.target.dataset.rm!==undefined&&!busy){items.splice(+e.target.dataset.rm,1);render()}});
+$('clear').onclick=()=>{if(!busy){items=[];render()}};
+const drop=$('drop');drop.onclick=()=>$('pick').click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')$('pick').click()};
+$('pick').onchange=e=>{add(e.target.files);e.target.value=''};
+['dragenter','dragover'].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>add(e.dataTransfer.files));
+function send(it){return new Promise(res=>{const x=new XMLHttpRequest(),fd=new FormData();
+  fd.append('file',it.file);fd.append('language',it.lang);fd.append('city',$('city').value);fd.append('invoice_row',it.row||'');fd.append('trainer',$('trainer').value);fd.append('module',$('module').value);fd.append('session_date',$('sdate').value);
+  x.open('POST','/api/upload');x.setRequestHeader('X-CSRF-Token',csrf);
+  const t0=Date.now();it.state='sending';it.msg='Uploading…';
+  x.upload.onprogress=e=>{if(e.lengthComputable){it.pct=Math.round(e.loaded/e.total*100);const s=(e.loaded/1e6)/((Date.now()-t0)/1000||1);
+    it.msg=it.pct<100?`Uploading ${it.pct}% · ${s.toFixed(1)} MB/s`:'Saving and queuing…';render()}};
+  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch{}
+    if(x.status===401){it.state='retry';it.msg='Session expired. Reload the page and sign in again.'}
+    else if(r.ok){it.state='done';it.pct=100;it.msg=`Queued as ${r.video_id}`}
+    else{it.state=x.status>=500?'retry':'error';it.pct=0;it.msg=r.message||`Upload failed (HTTP ${x.status})`}render();res()};
+  x.onerror=x.ontimeout=()=>{it.state='retry';it.pct=0;it.msg='Network problem. Press Upload all to retry.';render();res()};
+  x.timeout=0;x.send(fd)})}
+$('go').onclick=async()=>{busy=true;render();
+  const queue=items.filter(i=>i.state==='ready'||i.state==='retry');
+  const worker=async()=>{while(queue.length)await send(queue.shift())};
+  await Promise.all([worker(),worker()]);busy=false;render();
+  if(items.some(i=>i.state==='done'))$('summary').innerHTML+=' · <a href="/sessions">View sessions →</a>'};
+window.addEventListener('beforeunload',e=>{if(busy){e.preventDefault();e.returnValue=''}});
+</script>
+{% endblock %}

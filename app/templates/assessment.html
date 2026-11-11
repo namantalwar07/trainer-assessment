@@ -1,0 +1,102 @@
+{% extends "base.html" %}{% from "_macros.html" import band %}{% set nav='sessions' %}{% block title %}{{ a.session.video_id }}{% endblock %}
+{% block body %}
+{% set s=a.session %}
+{% set pct = a.overall_score if a.overall_score is not none else 0 %}
+<p class="small" style="margin:0 0 8px"><a href="/sessions">← Sessions</a></p>
+<div class="card"><div class="row" style="gap:22px;align-items:center">
+<div class="ring" style="--p:{{ pct }};--ringc:{{ 'var(--ok)' if pct>=75 else ('var(--warn)' if pct>=40 else 'var(--bad)') }}"><div><div><b>{{ a.overall_score if a.overall_score is not none else '–' }}</b><br><span>out of 100</span></div></div></div>
+<div class="grow"><h1 style="margin-bottom:6px">{{ s.video_id }} · {{ s.trainer.trainer_code }}{% if s.trainer.name %} · {{ s.trainer.name }}{% endif %}</h1>
+<div class="row" style="gap:8px;margin-bottom:6px">{{ band(a.band) }}<span class="small">{{ a.coverage_text }}</span></div>
+<p class="small" style="margin:0">{{ s.module_code }} · {{ s.state }}{% if s.city %}, {{ s.city }}{% endif %} · {{ s.language }} · {{ s.session_date }} · {{ ((s.duration_seconds or 0)/60)|round|int }} min<br>{{ s.original_filename }}</p></div>
+<div class="row"><a class="btn" href="/assessments/{{ a.id }}/report.pdf">Download PDF</a>
+{% if not s.video_deleted_at %}<a class="btn ghost" href="/sessions/{{ s.id }}/video" target="_blank" rel="noopener">Watch video</a>{% endif %}</div></div>
+{% if a.human_review_required %}<div class="banner alert" style="margin:16px 0 0"><strong>Human review required</strong><ul style="margin:6px 0 0;padding-left:18px">{% for r in a.review_reasons %}<li>{{ r }}</li>{% endfor %}</ul></div>{% endif %}
+<p class="small" style="margin:14px 0 0">Ratings use a 1–5 scale, so the lowest possible rated score is 20/100. Model {{ a.model }} · prompt {{ a.prompt_version }} · rubric {{ a.rubric_version }} · path {{ a.api_path }}{% if job and job.cost_usd is not none %} · est. cost ₹{{ '%.2f'|format(job.cost_usd * settings.usd_inr) }}{% endif %}. For trainer development only.</p>
+</div>
+
+
+<div class="card"><div class="row" style="margin-bottom:6px"><h2 class="grow" style="margin:0">{{ review.title }}</h2>
+{% if not review.row %}{% if user.role in ('operator','admin') %}<a class="btn ghost sm" href="/invoices">Link invoice row</a>{% endif %}{% endif %}</div>
+<div class="tbl-wrap"><table><thead><tr><th>Invoice row</th><th>Date</th><th>MSME</th><th>Invoiced time</th><th>Recording</th></tr></thead><tbody><tr>
+<td>{{ review.session.invoice_row }}</td><td>{{ review.session.date }}</td><td>{{ review.session.msme }}</td><td>{{ review.session.invoiced }}</td><td>{{ review.session.recording }}</td></tr></tbody></table></div>
+<h3 style="margin-top:16px">Result</h3><p style="margin:0"><b>{{ review.result }}</b></p>
+{% if review.clock_note %}<p class="small">{{ review.clock_note }}</p>{% endif %}
+<h3 style="margin-top:16px">Integrity</h3><p style="margin:0 0 4px">{{ review.integrity.heading }}</p>
+<ul style="margin:0;padding-left:20px">{% for i in review.integrity.issues %}<li class="bad">{{ i }}</li>{% endfor %}{% for l in review.integrity.lines %}<li>{{ l }}</li>{% endfor %}</ul>
+{% for n in review.integrity.notes %}<p class="small" style="margin:4px 0 0">Note: {{ n }}</p>{% endfor %}
+<h3 style="margin-top:16px">Gaps, silences and technical issues of 1 minute or more</h3>
+{% if review.events %}<div class="tbl-wrap"><table><thead><tr><th>No.</th><th>Type</th><th>Clock time</th><th>Recording time</th><th>Length</th><th>What happened</th></tr></thead><tbody>
+{% for e in review.events %}<tr><td>{{ e.n }}</td><td>{{ e.type }}</td><td style="white-space:nowrap">{{ e.clock }}</td><td style="white-space:nowrap"><code>{{ e.recording }}</code></td><td>{{ e.length }}</td><td>{{ e.detail }}</td></tr>{% endfor %}</tbody></table></div>
+<p class="small" style="margin:6px 0 0">None of this time counts as effective teaching time. Technical problems are not held against the trainer.</p>
+{% else %}<p style="margin:0">No gaps, silences or technical issues of 1 minute or more were found.</p>{% endif %}
+<h3 style="margin-top:16px">{{ 'Invoiced length vs recording length' if review.comparison.has_invoice else 'Recording length' }}</h3>
+<div class="tbl-wrap"><table><thead><tr><th>Measure</th><th>Time</th><th>Length</th></tr></thead><tbody>{% for r in review.comparison.rows %}<tr><td>{{ r.measure }}</td><td>{{ r.time }}</td><td>{{ r.length }}</td></tr>{% endfor %}</tbody></table></div>
+{% if review.comparison.paragraph %}<p style="margin:10px 0 0">{{ review.comparison.paragraph }}</p>{% endif %}
+<h3 style="margin-top:16px">Observation</h3><p style="margin:0">{{ review.observation }}</p></div>
+
+{% set ta = a.time_analysis %}
+{% if ta %}
+<div class="card"><div class="row" style="margin-bottom:10px"><h2 style="margin:0" class="grow">Effective teaching time</h2>
+<span class="pill {{ 'ok' if ta.meets_threshold else 'bad' }}">{{ 'Meets' if ta.meets_threshold else 'Below' }} {{ '%g'|format(ta.threshold_minutes) }} min</span>
+{% if ta.flagged_gaps %}<span class="pill bad">{{ ta.flagged_gaps }} long pause{{ 's' if ta.flagged_gaps != 1 }}</span>{% endif %}</div>
+<p style="margin:0 0 10px"><b style="font-size:22px">{{ '%.0f'|format(ta.effective_seconds/60) }} min</b> <span class="mute">effective of {{ '%.0f'|format(ta.total_seconds/60) }} min recorded. Only real teaching and supervised exercises count; technical problems, silence, pauses, breaks and absence are all deducted (listed in the table above).</span></p>
+<div style="display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--line)">
+{% for sp in ta.spans %}<i title="{{ STATE_LABELS[sp.state] }} {{ sp.start|hms }}–{{ sp.end|hms }}" style="width:{{ (sp.end-sp.start)/ta.total_seconds*100 }}%;background:{{ STATE_COLORS[sp.state] }}"></i>{% endfor %}</div>
+<div class="row small" style="gap:6px 16px;margin-top:8px">{% for k,v in ta.breakdown.items() if v %}<span><span style="color:{{ STATE_COLORS[k] }}">■</span> {{ STATE_LABELS[k] }} {{ '%.0f'|format(v/60) }} min</span>{% endfor %}</div>
+{% set shown = ta.gaps|rejectattr('forgiven')|list %}
+{% if shown %}<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>From</th><th>To</th><th>Length</th><th>What happened</th><th></th></tr></thead><tbody>
+{% for g in shown %}<tr><td><code>{{ g.start }}</code></td><td><code>{{ g.end }}</code></td><td>{{ '%.1f'|format(g.seconds/60) }} min</td>
+<td>{% for st in g.states %}{{ STATE_LABELS[st] }}{{ ', ' if not loop.last }}{% endfor %}{% if g.notes %}<br><small>{{ g.notes|join('; ') }}</small>{% endif %}</td>
+<td>{% if g.flagged %}<span class="pill bad">Flagged</span>{% else %}<span class="pill warn">Counted off</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="small" style="margin-top:10px">No pauses longer than the tolerance were detected.</p>{% endif %}
+<p class="small" style="margin:10px 0 0">AI-assisted measurement of the recording; a human should confirm flagged pauses. This does not change the competency score.</p></div>
+{% endif %}
+
+<div class="grid2">
+<div class="card"><h2>Mentees named ({{ (a.participants or [])|length }})</h2>
+{% if a.participants %}<div class="row" style="gap:6px">{% for p in a.participants %}<span class="pill" title="{{ p.source|replace('_',' ') }} at {{ p.first_seen }}, spelling confidence {{ p.confidence }}">{{ p.name }}</span>{% endfor %}</div>
+<p class="small" style="margin-top:10px">Transcribed by AI from speech and on-screen text; verify spelling against the attendance sheet. Hover a name for the source.</p>
+{% else %}<p class="mute">No mentee names were spoken or shown.</p>{% endif %}</div>
+<div class="card"><h2>Trainer conduct observations</h2>
+{% if a.conduct_events %}<table><tbody>{% for e in a.conduct_events %}<tr><td><code>{{ e.timestamp }}</code></td><td><b>{{ CONDUCT_LABELS.get(e.type, e.type) }}</b> · {{ e.duration_seconds }} s<br><small>{{ e.note }}</small></td></tr>{% endfor %}</tbody></table>
+<p class="small" style="margin-top:8px">Observable behaviour only, possibly with valid reasons. For human verification; does not change the score.</p>
+{% else %}<p class="mute">No conduct concerns observed (phone use, leaving the session area, unrelated conversation, inattention).</p>{% endif %}</div></div>
+
+<div class="card"><h2>Competency scorecard</h2><div class="tbl-wrap"><table>
+<thead><tr><th>Competency</th><th>Weight</th><th style="min-width:150px">Rating</th><th>Points</th><th>Confidence</th></tr></thead><tbody>
+{% for c in a.scores %}<tr><td><b>{{ c.criterion_id }}</b> {{ c.name }}</td>
+<td>{{ c.weight }}{% if not c.na and c.adjusted_weight != c.weight %}<br><small>adj. {{ '%.1f'|format(c.adjusted_weight) }}</small>{% endif %}</td>
+<td>{% if c.na %}<span class="pill">N/A</span>{% else %}<div class="row" style="gap:8px"><div class="bar" style="width:90px"><i style="width:{{ c.rating/5*100 }}%;background:{{ 'var(--ok)' if c.rating>=4 else ('var(--warn)' if c.rating==3 else 'var(--bad)') }}"></i></div><b>{{ c.rating }}</b>/5</div>{% endif %}</td>
+<td>{{ '' if c.na else '%.1f'|format(c.points) }}</td><td>{{ c.confidence }}</td></tr>
+<tr><td colspan="5" style="padding-top:0">
+{% for e in ev.get(c.criterion_id, []) %}<div style="margin:2px 0"><code>{{ e.timestamp }}</code> {{ e.observation }} <small>({{ e.assessment_note }})</small></div>{% endfor %}
+{% if c.improvement %}<small>Improvement: {{ c.improvement }}</small>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div></div>
+
+<div class="grid2"><div class="card"><h2>Top strengths</h2><ul style="margin:0;padding-left:18px">{% for x in a.top_strengths %}<li>{{ x }}</li>{% else %}<li class="mute">None recorded</li>{% endfor %}</ul></div>
+<div class="card"><h2>Development areas</h2><ul style="margin:0;padding-left:18px">{% for x in a.development_areas %}<li>{{ x }}</li>{% else %}<li class="mute">None recorded</li>{% endfor %}</ul></div></div>
+{% if a.critical_flags %}<div class="card" style="border-color:var(--bad)"><h2 class="bad">Critical flags</h2><ul style="margin:0;padding-left:18px">{% for f in a.critical_flags %}<li><code>{{ f.timestamp }}</code> {{ f.description }}</li>{% endfor %}</ul></div>{% endif %}
+
+<div class="card" id="coaching"><h2>Coaching plan and tracker</h2><div class="tbl-wrap"><table>
+<thead><tr><th>Priority</th><th>Competency</th><th>Action</th><th>Owner</th><th>Review date</th><th>Status</th><th></th></tr></thead><tbody>
+{% for c in coaching %}<tr>
+<td>{{ c.priority }}<form id="cf{{ c.id }}" method="post" action="/coaching/{{ c.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"></form></td><td>{{ c.competency }}</td><td>{{ c.action }}</td>
+<td><input form="cf{{ c.id }}" type="text" name="owner" value="{{ c.owner }}" placeholder="Owner" style="min-width:120px"></td>
+<td><input form="cf{{ c.id }}" type="date" name="review_date" value="{{ c.review_date or '' }}"></td>
+<td><select form="cf{{ c.id }}" name="status" style="min-width:110px">{% for st in ['Open','In progress','Done'] %}<option{{ ' selected' if c.status==st }}>{{ st }}</option>{% endfor %}</select></td>
+<td><button form="cf{{ c.id }}" class="ghost sm">Save</button></td></tr>
+{% else %}<tr><td colspan="7" class="mute">No coaching actions recorded.</td></tr>{% endfor %}</tbody></table></div></div>
+
+<div class="card"><h2>Human review</h2>
+<p class="sub" style="margin-bottom:12px">Recorded separately from the AI scores. Choose N/A for a competency you cannot assess.</p>
+<form method="post" action="/assessments/{{ a.id }}/review"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="tbl-wrap"><table><thead><tr><th>Competency</th><th>AI</th><th>Your rating</th></tr></thead><tbody>
+{% for c in a.scores %}<tr><td>{{ c.criterion_id }} {{ c.name }}</td><td>{{ 'N/A' if c.na else c.rating }}</td>
+<td><select name="rating_{{ c.criterion_id }}" style="width:100px"><option value="">N/A</option>{% for n in range(0 if settings.zero_anchor else 1, 6) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select></td></tr>{% endfor %}</tbody></table></div>
+<div class="grid2"><div><label>Decision</label><select name="decision"><option value="accept">Accept the AI assessment</option><option value="adjust">Adjust (my ratings stand)</option><option value="re_record">Needs re-recording</option></select></div>
+<div><label>Notes</label><textarea name="notes" rows="2"></textarea></div></div>
+<p><button>Save review</button></p></form>
+{% if reviews %}<h3 style="margin-top:18px">Previous reviews</h3><div class="tbl-wrap"><table><thead><tr><th>When</th><th>Reviewer</th><th>Decision</th><th>Human score</th><th>Notes</th></tr></thead><tbody>
+{% for r in reviews %}<tr><td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ r.reviewer.email }}</td><td>{{ r.decision }}</td><td>{{ r.human_overall if r.human_overall is not none else '' }}</td><td>{{ r.notes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</div>
+{% endblock %}
