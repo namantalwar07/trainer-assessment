@@ -3,13 +3,13 @@ services:
   - type: web
     name: trainer-assessment
     runtime: docker
-    plan: standard          # 2 GB RAM; 'starter' (512 MB) is too small for FFmpeg on long recordings
+    plan: starter           # about $7/month, 512 MB RAM; move to "standard" (2 GB) if long recordings run out of memory
     region: singapore       # closest Render region to India
     healthCheckPath: /healthz
     disk:
       name: data
       mountPath: /srv/data
-      sizeGB: 30
+      sizeGB: 10
     envVars:
       - {key: PORT, value: "8000"}
       - {key: MOCK_GEMINI, value: "false"}
