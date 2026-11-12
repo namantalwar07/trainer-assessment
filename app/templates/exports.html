@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% set nav='exports' %}{% block title %}Excel{% endblock %}
+{% block body %}
+<h1>Excel</h1><p class="sub">{% if master %}Every uploader's Excel, plus one consolidated Excel for all of them.{% else %}Your recordings go into your current Excel. Save it when you are done with a batch and a fresh one starts.{% endif %}</p>
+{% if msg %}<div class="banner ok" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+
+{% if mine %}<div class="card"><div class="row"><div class="grow"><h2 style="margin:0">My current Excel: {{ mine.name }}</h2>
+<p class="sub" style="margin:4px 0 0">{{ mine.count }} recording{{ 's' if mine.count != 1 }} so far. New uploads are added here automatically.</p></div>
+<a class="btn" href="/exports/batch/{{ mine.b.id }}.xlsx">Download current Excel</a>
+<form class="inline" method="post" action="/exports/save-new" onsubmit="return confirm('Save this Excel and start a fresh one? Your saved Excel stays available below.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">Save this Excel and start a new one</button></form></div></div>{% endif %}
+
+{% if master %}<div class="card"><h2>Consolidated Excel (all users)</h2>
+<form method="get" action="/exports/consolidated.xlsx"><div class="row" style="align-items:end">
+<div class="grow"><label style="margin-top:0">Uploader</label><select name="uploader"><option value="">All uploaders</option>{% for uid, name in users %}<option value="{{ uid }}">{{ name }}</option>{% endfor %}</select></div>
+<div class="grow"><label style="margin-top:0">Session date from</label><input type="date" name="date_from"></div>
+<div class="grow"><label style="margin-top:0">Session date to</label><input type="date" name="date_to"></div>
+<button>Download consolidated Excel</button></div></form>
+<p class="small" style="margin:8px 0 0">Includes every recording, every batch, with columns for uploader, batch and date source. Leave the filters blank for everything.</p></div>
+{% if open_batches %}<div class="card"><h2>Current (open) Excels of each user</h2><div class="tbl-wrap"><table><thead><tr><th>User</th><th>Excel</th><th>Recordings</th><th></th></tr></thead><tbody>
+{% for r in open_batches %}<tr><td>{{ r.owner }}</td><td>{{ r.name }}</td><td>{{ r.count }}</td><td><a class="btn ghost sm" href="/exports/batch/{{ r.b.id }}.xlsx">Download</a></td></tr>{% endfor %}</tbody></table></div></div>{% endif %}{% endif %}
+
+<div class="card"><h2>Saved Excels</h2>
+{% if saved %}<div class="tbl-wrap"><table><thead><tr>{% if master %}<th>User</th>{% endif %}<th>Excel</th><th>Recordings</th><th>Saved on</th><th></th></tr></thead><tbody>
+{% for r in saved %}<tr>{% if master %}<td>{{ r.owner }}</td>{% endif %}<td>{{ r.name }}</td><td>{{ r.count }}</td><td>{{ r.b.saved_at.strftime('%d %b %Y %H:%M') if r.b.saved_at }}</td><td><a class="btn ghost sm" href="/exports/batch/{{ r.b.id }}.xlsx">Download</a></td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="mute" style="margin:0">Nothing saved yet.</p>{% endif %}</div>
+{% endblock %}

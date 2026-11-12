@@ -35,6 +35,7 @@ class ParsedName:
     session_date: dt.date
     ext: str  # mp4 | mov
     auto_session: bool = False  # session code was not given; the uploader picks the next free one
+    date_source: str = "filename"  # form | filename | assumed (file metadata may upgrade 'assumed' later)
 
 
 def parse_filename(name: str) -> ParsedName:
@@ -88,13 +89,19 @@ def parse_or_default(name: str, trainer: str = "", module: str = "", date: str =
         module_code = re.sub(r"[^A-Za-z0-9]", "", module).upper()[:40]
         if not module_code:
             raise FilenameError("Module code may only contain letters and digits")
-    when = base.session_date if base else dt.date.today()
+    when, source = (base.session_date, "filename") if base else (None, "")
+    if when is None:
+        from app.recdate import date_from_name
+        when = date_from_name(name)
+        source = "filename" if when else "assumed"
+        when = when or dt.date.today()
     if date.strip():
         try:
-            when = dt.date.fromisoformat(date.strip())
+            when, source = dt.date.fromisoformat(date.strip()), "form"
         except ValueError as e:
             raise FilenameError("Session date must look like 2026-11-07") from e
     return ParsedName(
         state_code=base.state_code if base else "NA", state=base.state if base else "Not specified",
         module_code=module_code, trainer_code=trainer_code, session_code=base.session_code if base else "S001",
-        session_date=when, ext=ext_m[1].lower(), auto_session=base is None)
+        session_date=when, ext=ext_m[1].lower(), auto_session=base is None,
+        date_source=source)

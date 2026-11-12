@@ -91,7 +91,7 @@ def test_role_enforcement(app):
     assert op.get("/upload").status_code == 200
     assert rev.get("/upload").status_code == 403
     assert op.get("/exports/master.xlsx").status_code == 403
-    assert op.get("/assessments/1").status_code == 403
+    assert op.get("/assessments/1").status_code == 404  # nothing uploaded yet; results are never role-blocked for own data
     assert op.get("/admin/users").status_code == 403
     assert rev.get("/admin/modules").status_code == 403
 
@@ -154,7 +154,14 @@ def test_full_pipeline_pdf_excel_and_audit(app):
 
     pdf = rev.get(f"/assessments/{aid}/report.pdf")
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
-    assert op.get(f"/assessments/{aid}/report.pdf").status_code == 403
+    assert op.get(f"/assessments/{aid}/report.pdf").status_code == 200  # the uploader may open their own result
+    with app.state.sm() as db:
+        db.add(User(email="operator2@t.test", role="operator", password_hash=hash_password(PW)))
+        db.commit()
+    op2 = TestClient(app, follow_redirects=False)
+    assert op2.post("/login", data={"email": "operator2@t.test", "password": PW}).status_code == 303
+    assert op2.get(f"/assessments/{aid}/report.pdf").status_code == 403  # but not someone else's
+    assert op2.get(f"/assessments/{aid}").status_code == 403
     assert rev.get(f"/assessments/{aid}").status_code == 200
     assert rev.get(f"/sessions/{sid}/video").status_code == 200
 
@@ -184,7 +191,7 @@ def test_full_pipeline_pdf_excel_and_audit(app):
 
     actions = {row[0] for row in app.state.sm().execute(select(AuditLog.action))}
     assert {"login", "upload", "score", "view_assessment", "download_report", "view_video",
-            "export_workbook", "human_review"} <= actions
+            "export_consolidated", "human_review"} <= actions
 
     token = csrf_of(admin)
     assert admin.post(f"/sessions/{sid}/delete", data={"csrf": token}).status_code == 303
@@ -296,3 +303,51 @@ def test_upload_refused_when_disk_nearly_full(settings):
         db.add(User(email="operator@t.test", role="operator", password_hash=hash_password(PW)))
         db.commit()
     assert "nearly full" in upload(login(full, "operator")).text
+
+
+def test_each_uploader_has_own_excel_and_admin_sees_all(app):
+    op, admin = login(app, "operator"), login(app, "admin")
+    assert "Queued" in upload(op, "first.mp4", fake_mp4(1)).text
+    assert "Queued" in upload(op, "second.mp4", fake_mp4(2)).text
+    page = op.get("/exports")
+    assert page.status_code == 200 and "2 recordings so far" in page.text
+    # the uploader only sees their own recordings and cannot use the consolidated export
+    assert op.get("/exports/consolidated.xlsx").status_code == 403
+    assert "first.mp4" in op.get("/sessions").text
+    # save and start fresh
+    r = op.post("/exports/save-new", data={"csrf": csrf_of(op, "/exports")})
+    assert r.status_code == 303 and "Saved+as+Excel+1" in r.headers["location"]
+    page = op.get("/exports").text
+    assert "0 recordings so far" in page and "Excel 2" in page and "Saved Excels" in page
+    assert op.post("/exports/save-new", data={"csrf": csrf_of(op, "/exports")}).headers["location"].startswith(
+        "/exports?msg=Nothing")  # an empty batch is not saved
+    assert "Queued" in upload(op, "third.mp4", fake_mp4(3)).text
+    assert "1 recording so far" in op.get("/exports").text
+    # the saved batch still downloads, with only its own two recordings
+    with app.state.sm() as db:
+        from app.db import ExportBatch
+        saved = db.scalar(select(ExportBatch).where(ExportBatch.status == "saved"))
+    x = op.get(f"/exports/batch/{saved.id}.xlsx")
+    assert x.status_code == 200 and x.content[:2] == b"PK"
+    # admin sees everyone's recordings and can download the consolidated workbook with filters
+    assert admin.get("/exports/consolidated.xlsx").status_code == 200
+    assert admin.get("/exports/consolidated.xlsx?date_from=2999-01-01").status_code == 200
+    assert admin.get("/exports/consolidated.xlsx?date_from=bad").status_code == 400
+    assert "Saved Excels" in admin.get("/exports").text
+
+
+def test_recording_date_from_name_and_metadata():
+    import datetime as dt
+
+    from app.filenames import parse_or_default
+    from app.recdate import date_from_metadata, date_from_name
+    assert date_from_name("GMT20260901-104357_Recording_as_1920x1020.mp4") == dt.date(2026, 9, 1)
+    assert date_from_name("GMT20260901-210000_Recording.mp4") == dt.date(2026, 9, 2)  # 21:00 UTC is already 2 Sep in India
+    assert date_from_name("Session 14-09-2026 final.mp4") == dt.date(2026, 9, 14)
+    assert date_from_name("aatika p1.mp4") is None
+    assert date_from_metadata("2026-09-01T10:43:57.000000Z") == dt.date(2026, 9, 1)
+    assert date_from_metadata("1970-01-01T00:00:00Z") is None
+    p = parse_or_default("GMT20260901-104357_Recording_as_1920x1020.mp4")
+    assert (p.session_date, p.date_source) == (dt.date(2026, 9, 1), "filename")
+    assert parse_or_default("x.mp4").date_source == "assumed"
+    assert parse_or_default("x.mp4", date="2026-01-05").date_source == "form"

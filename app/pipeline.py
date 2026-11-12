@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import audit
@@ -27,6 +28,7 @@ from app.db import (
 )
 from app.gemini.base import AssessmentEngine, TokenUsage, TransientError
 from app.prompts import PROMPT_VERSION, build_extract_prompt, build_score_prompt
+from app.recdate import date_from_metadata
 from app.reports.pdf import build_pdf
 from app.review import build_review
 from app.rubric import Rubric
@@ -117,6 +119,8 @@ def run_job(job_id: str, *, sm: sessionmaker, settings: Settings, storage, engin
             sess.duration_seconds = v.duration_seconds
             ctx["duration_seconds"] = v.duration_seconds
             signals = measure_signals(Path(local_path), v.duration_seconds, settings)  # silence, freezes, jumps
+            if sess.date_source == "assumed" and (d := date_from_metadata(signals.get("metadata", {}).get("creation_time"))):
+                _adopt_date(db, sess, d)  # no date in the name or form: use the file's own recording date
             ctx["signals_text"] = signals_for_prompt(signals)
             db.commit()
 
@@ -258,6 +262,17 @@ def reassess(db: Session, session: VideoSession) -> bool:
     session.status = "queued"
     db.commit()
     return True
+
+
+def _adopt_date(db: Session, sess: VideoSession, d) -> None:
+    """Replace the assumed upload date with the file's recording date, unless that would duplicate a session."""
+    old = sess.session_date
+    try:
+        with db.begin_nested():  # savepoint: a clash must not undo the rest of the job
+            sess.session_date, sess.date_source = d, "metadata"
+            db.flush()
+    except IntegrityError:
+        sess.session_date, sess.date_source = old, "assumed"
 
 
 def _review(sess, invoice, ta, integrity, clock_readings, signals, note, settings, mentor_ai="",

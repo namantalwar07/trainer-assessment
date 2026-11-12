@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import audit
+from app.batches import open_batch
 from app.config import Settings
 from app.db import InvoiceEntry, ProcessingJob, Trainer, User, VideoSession
 from app.filenames import FilenameError, parse_or_default
@@ -137,7 +138,8 @@ def _ingest(db: Session, settings: Settings, storage, user: User, filename: str,
         state=parsed.state, city=city.strip()[:100], session_code=parsed.session_code,
         session_date=parsed.session_date, language=language, original_filename=filename,
         storage_key=key, sha256=digest, size_bytes=size, uploaded_by=user.id, status="queued",
-        invoice_entry_id=entry.id if entry else None)
+        invoice_entry_id=entry.id if entry else None, date_source=parsed.date_source,
+        batch_id=open_batch(db, user).id)
     db.add(session)
     try:
         db.flush()

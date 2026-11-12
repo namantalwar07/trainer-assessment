@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
-from app.db import Assessment, CoachingAction, Trainer, VideoSession
+from app.db import Assessment, CoachingAction, ExportBatch, Trainer, User, VideoSession
 from app.pipeline import review_for
 from app.rubric import Rubric
 from app.timeutil import fmt_timestamp
@@ -64,15 +64,37 @@ def _slope(points: list[tuple[int, float]]) -> float | None:
     return round(sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / den, 2) if den else None
 
 
-def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric) -> Path:
+def batch_path(settings: Settings, key: str) -> Path:
+    return settings.data_dir / "exports" / f"{key}.xlsx"
+
+
+def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric, *, batch_id: int | None = None,
+                        uploader_id: int | None = None, date_from=None, date_to=None,
+                        out_path: Path | None = None) -> Path:
+    """The consolidated workbook by default; narrow it to one Excel batch, one uploader or a session-date range."""
     min_n = settings.min_sessions_for_aggregate
     with sm() as db:
-        sessions = db.scalars(select(VideoSession).order_by(VideoSession.id)).all()
+        q = select(VideoSession).order_by(VideoSession.id)
+        if batch_id is not None:
+            q = q.where(VideoSession.batch_id == batch_id)
+        if uploader_id is not None:
+            q = q.where(VideoSession.uploaded_by == uploader_id)
+        if date_from:
+            q = q.where(VideoSession.session_date >= date_from)
+        if date_to:
+            q = q.where(VideoSession.session_date <= date_to)
+        sessions = db.scalars(q).all()
+        ids = {s.id for s in sessions}
         latest: dict[int, Assessment] = {}
         for a in db.scalars(select(Assessment).order_by(Assessment.id)):
-            latest[a.session_id] = a
-        coaching = db.scalars(select(CoachingAction).order_by(CoachingAction.id)).all()
+            if a.session_id in ids:
+                latest[a.session_id] = a
+        trainer_ids = {s.trainer_id for s in sessions}
+        coaching = [c for c in db.scalars(select(CoachingAction).order_by(CoachingAction.id))
+                    if c.trainer_id in trainer_ids]
         trainers = {t.id: t for t in db.scalars(select(Trainer))}
+        uploaders = {u.id: (u.name or u.email) for u in db.scalars(select(User))}
+        batch_no = {b.id: b.number for b in db.scalars(select(ExportBatch))}
 
         wb = Workbook()
 
@@ -82,35 +104,38 @@ def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric) ->
         rows = []
         for s in sessions:
             a = latest.get(s.id)
-            rows.append([s.video_id, trainers[s.trainer_id].trainer_code, trainers[s.trainer_id].name, s.state,
-                         s.city, s.module_code, str(s.session_date), round((s.duration_seconds or 0) / 60),
-                         s.language, s.status, a.overall_score if a else None, a.band if a else None,
-                         ("Yes" if a.human_review_required else "No") if a else None,
-                         a.coverage_text if a else None,
+            mentor = review_for(db, settings, a)["mentor"] if a else (trainers[s.trainer_id].name or "")
+            if mentor.startswith("TR-"):  # only a trainer code is known, not a name
+                mentor = ""
+            rows.append([s.video_id, mentor, ", ".join(p["name"] for p in (a.participants or [])) if a else "",
+                         s.state, str(s.session_date), round((s.duration_seconds or 0) / 60), s.status,
+                         a.overall_score if a else None,
                          round(a.time_analysis["effective_seconds"] / 60, 1) if a and a.time_analysis else None,
                          (("Yes" if a.time_analysis["meets_threshold"] else "No") if a and a.time_analysis else None),
                          a.time_analysis["flagged_gaps"] if a and a.time_analysis else None,
                          len(a.participants or []) if a else None,
-                         f"{settings.public_base_url}/assessments/{a.id}/report.pdf" if a and a.report_path else None])
-        _table(ws, ["Video_ID", "Trainer_ID", "Trainer_Name", "State", "City", "Module", "Session_Date",
-                    "Duration_Min", "Primary_Language", "Processing_Status", "Overall_Score",
-                    "Performance_Band", "Human_Review", "Coverage", "Effective_Min", "Meets_Min_Effective_Time",
-                    "Long_Pauses_Flagged", "Mentees_Named", "Report_Link"], rows)
+                         f"{settings.public_base_url}/assessments/{a.id}/report.pdf" if a and a.report_path else None,
+                         {"form": "Entered", "filename": "From file name", "metadata": "From file metadata",
+                          "assumed": "Assumed (upload date)"}.get(s.date_source or "", "From file name"),
+                         uploaders.get(s.uploaded_by, ""), batch_no.get(s.batch_id), s.original_filename,
+                         a.band if a else None])
+        _table(ws, ["Video_ID", "Mentor_Name", "Mentee_Names", "State", "Session_Date", "Duration_Min",
+                    "Processing_Status", "Overall_Score", "Effective_Min", "Meets_Min_Effective_Time",
+                    "Long_Pauses_Flagged", "Mentees_Named", "Report_Link", "Date_Source", "Uploaded_By",
+                    "Excel_Batch", "Original_File", "Performance_Band"], rows)
         _autosize(ws)
         for r in range(2, ws.max_row + 1):
-            band_cell = ws.cell(row=r, column=12)
+            band_cell = ws.cell(row=r, column=18)
             if band_cell.value in BAND_FILL:
                 band_cell.fill = PatternFill("solid", fgColor=BAND_FILL[band_cell.value])
-            link = ws.cell(row=r, column=19)
-            if ws.cell(row=r, column=16).value == "No":
-                ws.cell(row=r, column=16).font = Font(bold=True, color="B42318")
-            if (ws.cell(row=r, column=17).value or 0) > 0:
-                ws.cell(row=r, column=17).font = Font(bold=True, color="B42318")
+            link = ws.cell(row=r, column=13)
+            if ws.cell(row=r, column=10).value == "No":
+                ws.cell(row=r, column=10).font = Font(bold=True, color="B42318")
+            if (ws.cell(row=r, column=11).value or 0) > 0:
+                ws.cell(row=r, column=11).font = Font(bold=True, color="B42318")
             if link.value:
                 link.hyperlink, link.font = link.value, Font(color="0563C1", underline="single")
-            if ws.cell(row=r, column=13).value == "Yes":
-                ws.cell(row=r, column=13).font = Font(bold=True, color="B54708")
-        ws.column_dimensions["S"].width = 22
+        ws.column_dimensions["M"].width = 22
 
         # 1b. Session Review (the standard session-recording-review summary, one row per recording)
         ws = wb.create_sheet("Session Review")
@@ -311,7 +336,7 @@ def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric) ->
             for cell in row:
                 cell.alignment = Alignment(wrap_text=False, vertical="top")
 
-    path = workbook_path(settings)
+    path = out_path or workbook_path(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     wb.save(tmp)

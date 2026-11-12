@@ -77,6 +77,7 @@
 <div class="card"><h2>Development areas</h2><ul style="margin:0;padding-left:18px">{% for x in a.development_areas %}<li>{{ x }}</li>{% else %}<li class="mute">None recorded</li>{% endfor %}</ul></div></div>
 {% if a.critical_flags %}<div class="card" style="border-color:var(--bad)"><h2 class="bad">Critical flags</h2><ul style="margin:0;padding-left:18px">{% for f in a.critical_flags %}<li><code>{{ f.timestamp }}</code> {{ f.description }}</li>{% endfor %}</ul></div>{% endif %}
 
+{% if user.role in ('reviewer','admin') %}
 <div class="card" id="coaching"><h2>Coaching plan and tracker</h2><div class="tbl-wrap"><table>
 <thead><tr><th>Priority</th><th>Competency</th><th>Action</th><th>Owner</th><th>Review date</th><th>Status</th><th></th></tr></thead><tbody>
 {% for c in coaching %}<tr>
@@ -99,4 +100,5 @@
 {% if reviews %}<h3 style="margin-top:18px">Previous reviews</h3><div class="tbl-wrap"><table><thead><tr><th>When</th><th>Reviewer</th><th>Decision</th><th>Human score</th><th>Notes</th></tr></thead><tbody>
 {% for r in reviews %}<tr><td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ r.reviewer.email }}</td><td>{{ r.decision }}</td><td>{{ r.human_overall if r.human_overall is not none else '' }}</td><td>{{ r.notes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </div>
+{% endif %}
 {% endblock %}

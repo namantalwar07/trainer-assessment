@@ -119,7 +119,7 @@ def _bar(rating: int | None, na: bool) -> Drawing:
 def _standard_review(r: dict) -> list:
     s: list = [_p(r["title"], TITLE)]
     if r.get("mentee_names"):
-        s.append(_p("Mentor: " + r["mentor"] + "  ·  Mentee(s): " + ", ".join(r["mentee_names"]), BODY))
+        s.append(_p("Mentor: " + ("not named in the recording" if r["mentor"].startswith("TR-") else r["mentor"]) + "  ·  Mentee(s): " + ", ".join(r["mentee_names"]), BODY))
 
     s += [_p("Session", H2), _table([
         _header_row(["Invoice row", "Date", "MSME", "Invoiced time", "Recording"]),

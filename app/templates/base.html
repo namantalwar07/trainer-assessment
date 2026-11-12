@@ -63,7 +63,7 @@ details>summary{cursor:pointer;color:var(--accent);font-size:13px}
   <nav class="nav">
     <a href="/sessions" class="{{ 'on' if nav=='sessions' }}">Sessions</a>
     {% if user.role in ('operator','admin') %}<a href="/upload" class="{{ 'on' if nav=='upload' }}">Upload</a><a href="/invoices" class="{{ 'on' if nav=='invoices' }}">Invoices</a>{% endif %}
-    {% if user.role in ('reviewer','admin') %}<a href="/exports/master.xlsx">Excel export</a>{% endif %}
+    <a href="/exports" class="{{ 'on' if nav=='exports' }}">Excel</a>
     {% if user.role == 'admin' %}<a href="/admin/modules" class="{{ 'on' if nav=='modules' }}">Modules</a><a href="/admin/trainers" class="{{ 'on' if nav=='trainers' }}">Trainers</a><a href="/admin/users" class="{{ 'on' if nav=='users' }}">Users</a>{% endif %}
   </nav>
   <span class="sp"></span><span class="who">{{ user.name or user.email }} · {{ user.role }}</span>

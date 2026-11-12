@@ -102,6 +102,8 @@ class VideoSession(Base):
     video_deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     invoice_entry_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    batch_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the uploader's Excel batch
+    date_source: Mapped[str | None] = mapped_column(String(20), nullable=True)  # form|filename|metadata|assumed
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     trainer: Mapped[Trainer] = relationship()
@@ -124,6 +126,18 @@ class ProcessingJob(Base):
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped[VideoSession] = relationship(back_populates="jobs")
+
+
+class ExportBatch(Base):
+    """One uploader's Excel: all recordings they upload go into their open batch until they save it and start a new one."""
+
+    __tablename__ = "export_batches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    number: Mapped[int] = mapped_column(Integer, default=1)  # 1, 2, 3 ... per owner
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open | saved
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    saved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class UploadedFile(Base):

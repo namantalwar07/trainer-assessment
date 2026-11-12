@@ -11,6 +11,7 @@ import datetime as dt
 import statistics
 
 from app.config import Settings
+from app.recdate import DATE_NOTE
 from app.timeline import STATE_LABELS
 from app.timeutil import fmt_timestamp, parse_clock, parse_timestamp
 
@@ -354,7 +355,7 @@ def build_review(*, session, trainer_name: str, invoice, ta: dict | None, integr
         "header_title": f"Session Recording Review – {mentor} – {title_row}",
         "session": {
             "invoice_row": str(row) if row is not None else "Not linked",
-            "date": fmt_date(date),
+            "date": fmt_date(date) + (DATE_NOTE.get(getattr(session, "date_source", "") or "", "") if not invoice else ""),
             "msme": (invoice.msme_name if invoice and invoice.msme_name else "—"),
             "invoiced": (f"{fmt_range(inv_s, inv_e)} ({fmt_len(inv_e - inv_s)})" if invoice else "—"),
             "recording": (f"{span_text(0, total)} ({fmt_len(total)})"),

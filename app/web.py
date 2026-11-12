@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,10 +16,12 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import audit
+from app.batches import backfill, batch_count, open_batch, save_and_start_new
 from app.config import LANGUAGES, Settings
 from app.db import (
     Assessment,
     CoachingAction,
+    ExportBatch,
     HumanReview,
     InvoiceEntry,
     Module,
@@ -33,7 +36,7 @@ from app.invoices import TEMPLATE_CSV, InvoiceError, import_csv, link_matches, l
 from app.invoices import normalise_trainer_code as TRAINER_CODE
 from app.logging_setup import setup_logging
 from app.pipeline import rebuild_report, retry_job, review_for
-from app.reports.excel import regenerate_workbook, workbook_path
+from app.reports.excel import batch_path, regenerate_workbook
 from app.retention import delete_session
 from app.review import report_filename
 from app.rubric import load_rubric
@@ -57,6 +60,8 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
     settings = settings or Settings.from_env()
     setup_logging(settings)
     sm = make_session_factory(settings.db_url)
+    with sm() as _db:
+        backfill(_db)
     rubric = load_rubric()
     storage = make_storage(settings)
     with sm() as db:
@@ -100,6 +105,11 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
                 raise HTTPException(403, "Your role does not allow this action")
             return user
         return dep
+
+    def own_only(user: User, session: VideoSession) -> None:
+        """Reviewers and admins see every result; an uploader sees only the recordings they uploaded."""
+        if user.role == "operator" and session.uploaded_by != user.id:
+            raise HTTPException(403, "You can only open results of recordings you uploaded")
 
     operator_up = require("operator")
     reviewer_up = require("reviewer")
@@ -173,7 +183,11 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
     @app.get("/sessions")
     def sessions_page(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
         rows = []
-        for s in db.scalars(select(VideoSession).order_by(VideoSession.id.desc()).limit(500)):
+        q = select(VideoSession).order_by(VideoSession.id.desc()).limit(500)
+        if user.role == "operator":  # uploaders see their own recordings; reviewers and admins see everyone's
+            q = q.where(VideoSession.uploaded_by == user.id)
+        uploaders = {u.id: (u.name or u.email) for u in db.scalars(select(User))}
+        for s in db.scalars(q):
             job = max(s.jobs, key=lambda j: j.created_at) if s.jobs else None
             a = db.scalar(select(Assessment).where(Assessment.session_id == s.id).order_by(Assessment.id.desc()))
             rows.append({"s": s, "job": job, "a": a})
@@ -187,8 +201,8 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
         }
         scored = [r["a"].overall_score for r in rows if r["a"] and r["a"].overall_score is not None]
         stats["avg"] = round(sum(scored) / len(scored), 1) if scored else None
-        return render(request, "sessions.html", user, rows=rows, busy=busy, stats=stats,
-                      can_score=user.role in ("reviewer", "admin"))
+        return render(request, "sessions.html", user, rows=rows, busy=busy, stats=stats, can_score=True,
+                      uploaders=uploaders)
 
     @app.get("/upload")
     def upload_page(request: Request, user: User = Depends(operator_up), db: Session = Depends(get_db)):
@@ -334,9 +348,10 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
 
     # ---------- assessments ----------
     @app.get("/assessments/{aid}")
-    def assessment_page(aid: int, request: Request, user: User = Depends(reviewer_up),
+    def assessment_page(aid: int, request: Request, user: User = Depends(current_user),
                         db: Session = Depends(get_db)):
         a = db.get(Assessment, aid) or _404()
+        own_only(user, a.session)
         audit.record(db, user, "view_assessment", "assessment", a.session.video_id, ip=ip(request))
         ev: dict[str, list] = {}
         for e in sorted(a.evidence, key=lambda x: x.seconds):
@@ -375,8 +390,9 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
         return RedirectResponse(f"/assessments/{aid}", status_code=303)
 
     @app.get("/assessments/{aid}/report.pdf")
-    def report(aid: int, request: Request, user: User = Depends(reviewer_up), db: Session = Depends(get_db)):
+    def report(aid: int, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
         a = db.get(Assessment, aid) or _404()
+        own_only(user, a.session)
         path = settings.data_dir / (a.report_path or "")
         if not a.report_path or not path.is_file():
             raise HTTPException(404, "Report not available")
@@ -385,14 +401,78 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
                                                   [x["name"] for x in a.participants or []]),
                             headers={"Cache-Control": "private, no-store"})
 
+    XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    NOCACHE = {"Cache-Control": "private, no-store"}
+
+    def _batch_view(db: Session, b: ExportBatch, owners: dict) -> dict:
+        return {"b": b, "owner": owners.get(b.owner_id, "?"), "count": batch_count(db, b.id),
+                "name": f"Excel {b.number}"}
+
+    @app.get("/exports")
+    def exports_page(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db),
+                     msg: str = ""):
+        owners = {u.id: (u.name or u.email) for u in db.scalars(select(User))}
+        master = user.role in ("reviewer", "admin")
+        mine = None
+        if user.role in ("operator", "admin"):
+            mine = _batch_view(db, open_batch(db, user), owners)
+            db.commit()
+        q = select(ExportBatch).order_by(ExportBatch.id.desc())
+        if not master:
+            q = q.where(ExportBatch.owner_id == user.id)
+        saved = [_batch_view(db, b, owners) for b in db.scalars(q.where(ExportBatch.status == "saved").limit(200))]
+        openb = []
+        if master:
+            openb = [_batch_view(db, b, owners) for b in db.scalars(
+                select(ExportBatch).where(ExportBatch.status == "open").order_by(ExportBatch.owner_id))
+                if batch_count(db, b.id)]
+        return render(request, "exports.html", user, mine=mine, saved=saved, open_batches=openb, master=master,
+                      users=[(u.id, u.name or u.email) for u in db.scalars(select(User).order_by(User.email))
+                             if u.role in ("operator", "admin")], msg=msg)
+
+    def _send_batch(db: Session, b: ExportBatch, user: User, request: Request):
+        if user.role == "operator" and b.owner_id != user.id:
+            raise HTTPException(403, "This Excel belongs to another user")
+        path = regenerate_workbook(sm, settings, rubric, batch_id=b.id, out_path=batch_path(settings, f"batch_{b.id}"))
+        owner = db.get(User, b.owner_id)
+        audit.record(db, user, "export_batch", "export", f"batch {b.id}", ip=ip(request))
+        label = re.sub(r"[^\w.-]+", "_", (owner.name or owner.email.split("@")[0]) if owner else "user")
+        return FileResponse(path, filename=f"{label}_Excel_{b.number}.xlsx", media_type=XLSX, headers=NOCACHE)
+
+    @app.get("/exports/batch/{bid}.xlsx")
+    def export_batch(bid: int, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+        return _send_batch(db, db.get(ExportBatch, bid) or _404(), user, request)
+
+    @app.post("/exports/save-new")
+    def export_save_new(request: Request, csrf_token: str = Form("", alias="csrf"),
+                        user: User = Depends(operator_up), db: Session = Depends(get_db)):
+        check_csrf(request, csrf_token)
+        cur = open_batch(db, user)
+        if not batch_count(db, cur.id):
+            return RedirectResponse("/exports?msg=Nothing+to+save+yet:+upload+recordings+first", status_code=303)
+        saved, new = save_and_start_new(db, user)
+        audit.record(db, user, "export_save_new", "export", f"batch {saved.id}", ip=ip(request))
+        db.commit()
+        return RedirectResponse(f"/exports?msg=Saved+as+Excel+{saved.number}.+A+fresh+Excel+{new.number}+has+started",
+                                status_code=303)
+
+    @app.get("/exports/consolidated.xlsx")
+    def export_consolidated(request: Request, uploader: str = "", date_from: str = "", date_to: str = "",
+                            user: User = Depends(reviewer_up), db: Session = Depends(get_db)):
+        def d(x: str):
+            try:
+                return dt.date.fromisoformat(x) if x else None
+            except ValueError:
+                raise HTTPException(400, "Dates must look like 2026-11-07") from None
+        uid = int(uploader) if uploader.isdigit() else None
+        path = regenerate_workbook(sm, settings, rubric, uploader_id=uid, date_from=d(date_from), date_to=d(date_to),
+                                   out_path=batch_path(settings, f"consolidated_{user.id}"))
+        audit.record(db, user, "export_consolidated", "export", "consolidated", ip=ip(request))
+        return FileResponse(path, filename="trainer_assessment_consolidated.xlsx", media_type=XLSX, headers=NOCACHE)
+
     @app.get("/exports/master.xlsx")
     def export_workbook(request: Request, user: User = Depends(reviewer_up), db: Session = Depends(get_db)):
-        regenerate_workbook(sm, settings, rubric)
-        audit.record(db, user, "export_workbook", "export", "master.xlsx", ip=ip(request))
-        return FileResponse(
-            workbook_path(settings), filename="trainer_assessment_master.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Cache-Control": "private, no-store"})
+        return export_consolidated(request, user=user, db=db)
 
     @app.post("/coaching/{cid}")
     def coaching_update(cid: int, request: Request, owner: str = Form(""), review_date: str = Form(""),

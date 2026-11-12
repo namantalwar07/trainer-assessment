@@ -19,7 +19,7 @@
 {% if can_score %}<th>Score</th><th>Band</th><th>Effective time</th>{% endif %}<th>Est. cost</th><th></th></tr></thead><tbody>
 {% for r in rows %}{% set s=r.s %}{% set a=r.a %}{% set j=r.job %}
 <tr data-status="{{ s.status }}" data-review="{{ 1 if a and a.human_review_required else 0 }}" data-text="{{ (s.video_id ~ ' ' ~ s.original_filename ~ ' ' ~ s.trainer.trainer_code ~ ' ' ~ (s.trainer.name or '') ~ ' ' ~ s.module_code ~ ' ' ~ s.language ~ ' ' ~ s.state)|lower }}">
-<td><b>{{ s.video_id }}</b><br><small>{{ s.original_filename }}</small></td>
+<td><b>{{ s.video_id }}</b><br><small>{{ s.original_filename }}</small>{% if user.role != 'operator' %}<br><small class="mute">by {{ uploaders.get(s.uploaded_by, '?') }}</small>{% endif %}</td>
 <td>{{ s.trainer.trainer_code }}{% if s.trainer.name %}<br><small>{{ s.trainer.name }}</small>{% endif %}</td>
 <td>{{ s.module_code }}<br><small>{{ s.state }}{% if s.city %} · {{ s.city }}{% endif %}</small></td><td>{{ s.language }}</td>
 <td>{{ status(s.status) }}{% if j and j.error %}<br><small class="bad">{{ j.error[:200] }}</small>{% endif %}
