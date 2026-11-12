@@ -108,8 +108,7 @@ def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric, *,
             if mentor.startswith("TR-"):  # only a trainer code is known, not a name
                 mentor = ""
             rows.append([s.video_id, mentor, ", ".join(p["name"] for p in (a.participants or [])) if a else "",
-                         s.state, str(s.session_date), round((s.duration_seconds or 0) / 60), s.status,
-                         a.overall_score if a else None,
+                         s.state, str(s.session_date), round((s.duration_seconds or 0) / 60),
                          round(a.time_analysis["effective_seconds"] / 60, 1) if a and a.time_analysis else None,
                          (("Yes" if a.time_analysis["meets_threshold"] else "No") if a and a.time_analysis else None),
                          a.time_analysis["flagged_gaps"] if a and a.time_analysis else None,
@@ -118,24 +117,24 @@ def regenerate_workbook(sm: sessionmaker, settings: Settings, rubric: Rubric, *,
                          {"form": "Entered", "filename": "From file name", "metadata": "From file metadata",
                           "assumed": "Assumed (upload date)"}.get(s.date_source or "", "From file name"),
                          uploaders.get(s.uploaded_by, ""), batch_no.get(s.batch_id), s.original_filename,
-                         a.band if a else None])
+                         a.band if a else None, s.status])
         _table(ws, ["Video_ID", "Mentor_Name", "Mentee_Names", "State", "Session_Date", "Duration_Min",
-                    "Processing_Status", "Overall_Score", "Effective_Min", "Meets_Min_Effective_Time",
+                    "Effective_Min", "Meets_Min_Effective_Time",
                     "Long_Pauses_Flagged", "Mentees_Named", "Report_Link", "Date_Source", "Uploaded_By",
-                    "Excel_Batch", "Original_File", "Performance_Band"], rows)
+                    "Excel_Batch", "Original_File", "Performance_Band", "Processing_Status"], rows)
         _autosize(ws)
         for r in range(2, ws.max_row + 1):
-            band_cell = ws.cell(row=r, column=18)
+            band_cell = ws.cell(row=r, column=16)
             if band_cell.value in BAND_FILL:
                 band_cell.fill = PatternFill("solid", fgColor=BAND_FILL[band_cell.value])
-            link = ws.cell(row=r, column=13)
-            if ws.cell(row=r, column=10).value == "No":
-                ws.cell(row=r, column=10).font = Font(bold=True, color="B42318")
-            if (ws.cell(row=r, column=11).value or 0) > 0:
-                ws.cell(row=r, column=11).font = Font(bold=True, color="B42318")
+            link = ws.cell(row=r, column=11)
+            if ws.cell(row=r, column=8).value == "No":
+                ws.cell(row=r, column=8).font = Font(bold=True, color="B42318")
+            if (ws.cell(row=r, column=9).value or 0) > 0:
+                ws.cell(row=r, column=9).font = Font(bold=True, color="B42318")
             if link.value:
                 link.hyperlink, link.font = link.value, Font(color="0563C1", underline="single")
-        ws.column_dimensions["M"].width = 22
+        ws.column_dimensions["K"].width = 22
 
         # 1b. Session Review (the standard session-recording-review summary, one row per recording)
         ws = wb.create_sheet("Session Review")
