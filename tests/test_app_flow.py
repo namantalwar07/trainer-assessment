@@ -351,3 +351,109 @@ def test_recording_date_from_name_and_metadata():
     assert (p.session_date, p.date_source) == (dt.date(2026, 9, 1), "filename")
     assert parse_or_default("x.mp4").date_source == "assumed"
     assert parse_or_default("x.mp4", date="2026-01-05").date_source == "form"
+
+
+class _Share:
+    """A tiny local web server that plays OneDrive: a downloadable video, a sign-in page and a redirect."""
+
+    def __init__(self, body: bytes):
+        import http.server
+        import threading
+        outer = body
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):  # noqa: ANN002
+                pass
+
+            def do_GET(self):  # noqa: N802
+                if self.path.startswith("/video"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "video/mp4")
+                    self.send_header("Content-Disposition", "attachment; filename=\"Mentoring Session 20260916.mp4\"")
+                    self.end_headers()
+                    self.wfile.write(outer)
+                elif self.path.startswith("/signin"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(b"<html>Sign in</html>")
+                elif self.path.startswith("/hop"):
+                    self.send_response(302)
+                    self.send_header("Location", "http://evil.example.invalid/video")
+                    self.end_headers()
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        self.srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.srv.server_port}"
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown()
+
+
+def test_link_fetch_downloads_names_and_refuses_unsafe_links():
+    from app.linkfetch import LinkError, open_link
+    share = _Share(fake_mp4(5))
+    try:
+        kw = {"allowed": ("127.0.0.1",), "https_only": False}
+        resp, name = open_link(share.url + "/video?x=1", **kw)
+        assert name == "Mentoring Session 20260916.mp4" and resp.read(8)[4:8] == b"ftyp"
+        resp.close()
+        with pytest.raises(LinkError, match="Anyone with the link"):
+            open_link(share.url + "/signin", **kw)  # a sign-in page is not a video
+        with pytest.raises(LinkError, match="redirects somewhere"):
+            open_link(share.url + "/hop", **kw)  # redirects off the allowed hosts are never followed
+        with pytest.raises(LinkError, match="not found"):
+            open_link(share.url + "/missing", **kw)
+    finally:
+        share.close()
+    with pytest.raises(LinkError, match="Only OneDrive"):
+        open_link("https://example.com/video.mp4")
+    with pytest.raises(LinkError, match="full https link"):
+        open_link("http://1drv.ms/v/s!abc")
+    with pytest.raises(LinkError, match="Only OneDrive"):
+        open_link("https://evil-sharepoint.com.attacker.net/x")
+
+
+def test_direct_url_rewriting_for_sharepoint_and_onedrive():
+    import urllib.request
+
+    from app.linkfetch import _direct_url
+    op = urllib.request.build_opener()
+    sp = _direct_url("https://acme.sharepoint.com/:v:/g/personal/x/Ex?e=abc", op, ("sharepoint.com",))
+    assert sp.startswith("https://acme.sharepoint.com/") and "download=1" in sp and "e=abc" in sp
+    od = _direct_url("https://onedrive.live.com/?id=1&cid=2", op, ("live.com",))
+    assert od.startswith("https://api.onedrive.com/v1.0/shares/u!") and od.endswith("/root/content")
+
+
+def test_upload_link_route_rejects_bad_links_and_needs_login(app):
+    c = TestClient(app, follow_redirects=False)
+    assert c.post("/api/upload-link", data={"url": "https://x", "language": "Hindi"}).status_code in (303, 401)
+    op = login(app, "operator")
+    r = op.post("/api/upload-link", data={"url": "https://example.com/a.mp4", "language": "Hindi"},
+                headers={"X-CSRF-Token": csrf_of(op, "/upload")})
+    assert r.status_code == 422 and "Only OneDrive" in r.json()["message"]
+    assert op.post("/api/upload-link", data={"url": "https://1drv.ms/v/s!a", "language": "Hindi"}).status_code == 403  # no CSRF
+
+
+def test_upload_from_link_queues_with_name_and_date_from_the_file(app, monkeypatch):
+    import app.web as web
+    from app.db import VideoSession
+    from app.linkfetch import open_link
+    share = _Share(fake_mp4(6))
+    monkeypatch.setattr(web, "open_link", lambda u: open_link(u, allowed=("127.0.0.1",), https_only=False))
+    try:
+        op = login(app, "operator")
+        r = op.post("/api/upload-link", data={"url": share.url + "/video", "language": "Hindi"},
+                    headers={"X-CSRF-Token": csrf_of(op, "/upload")})
+        assert r.status_code == 200 and r.json()["ok"] and r.json()["filename"] == "Mentoring Session 20260916.mp4"
+        with app.state.sm() as db:
+            s = db.scalar(select(VideoSession))
+            assert str(s.session_date) == "2026-09-16" and s.date_source == "filename" and s.batch_id
+        dup = op.post("/api/upload-link", data={"url": share.url + "/video", "language": "Hindi"},
+                      headers={"X-CSRF-Token": csrf_of(op, "/upload")})
+        assert dup.status_code == 422 and "Duplicate" in dup.json()["message"]
+    finally:
+        share.close()

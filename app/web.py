@@ -34,6 +34,7 @@ from app.db import (
 from app.ingest import ingest_upload
 from app.invoices import TEMPLATE_CSV, InvoiceError, import_csv, link_matches, link_row, parse_date, parse_time
 from app.invoices import normalise_trainer_code as TRAINER_CODE
+from app.linkfetch import LinkError, open_link
 from app.logging_setup import setup_logging
 from app.pipeline import rebuild_report, retry_job, review_for
 from app.reports.excel import batch_path, regenerate_workbook
@@ -236,6 +237,27 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
         r = ingest_upload(db, settings, storage, user, file.filename or "", file.file, language, city, ip(request),
                           invoice_row=row, trainer=trainer, module=module, session_date=session_date)
         return JSONResponse({"ok": r.ok, "message": r.message, "video_id": r.video_id},
+                            status_code=200 if r.ok else 422)
+
+    @app.post("/api/upload-link")
+    def api_upload_link(request: Request, url: str = Form(...), language: str = Form(...), city: str = Form(""),
+                        trainer: str = Form(""), module: str = Form(""), session_date: str = Form(""),
+                        user: User = Depends(operator_up), db: Session = Depends(get_db)):
+        """Fetch a recording from an 'anyone with the link' OneDrive/SharePoint share and queue it like an upload."""
+        check_csrf(request, request.headers.get("x-csrf-token", ""))
+        if language not in LANGUAGES:
+            raise HTTPException(400, "Unknown language")
+        try:
+            resp, name = open_link(url)
+        except LinkError as e:
+            audit.record(db, user, "upload_link_rejected", "file", url[:100], {"reason": str(e)}, ip(request))
+            return JSONResponse({"ok": False, "message": str(e), "video_id": None}, status_code=422)
+        try:
+            r = ingest_upload(db, settings, storage, user, name, resp, language, city, ip(request),
+                              trainer=trainer, module=module, session_date=session_date)
+        finally:
+            resp.close()
+        return JSONResponse({"ok": r.ok, "message": r.message, "video_id": r.video_id, "filename": name},
                             status_code=200 if r.ok else 422)
 
     # ---------- invoices ----------

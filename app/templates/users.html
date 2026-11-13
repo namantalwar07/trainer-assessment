@@ -7,6 +7,6 @@
 <div class="card"><h2>Add user</h2><form method="post" action="/admin/users"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label>Email</label><input type="email" name="email" required><label>Name</label><input type="text" name="name">
 <label>Role</label><select name="role">{% for r in roles %}<option>{{ r }}</option>{% endfor %}</select>
-<label>Temporary password (12+ characters, letters and digits)</label><input type="password" name="password" autocomplete="new-password" required minlength="12">
+<label>Temporary password (6 or more digits or characters)</label><input type="password" name="password" autocomplete="new-password" required minlength="6">
 <p><button>Create user</button></p></form></div></div>
 {% endblock %}

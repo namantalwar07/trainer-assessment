@@ -21,6 +21,8 @@ def metadata_block(ctx: dict) -> str:
         f"Primary language: {ctx['language']}", f"Duration: {ctx['duration_seconds'] / 60:.0f} minutes "
         f"({int(ctx['duration_seconds'])} seconds)", f"State: {ctx['state']}",
     ]
+    if ctx.get("part_note"):
+        lines += ["", "PART OF A LONGER RECORDING: " + ctx["part_note"]]
     if ctx.get("signals_text"):
         lines += ["", "MEASURED SIGNALS (measured by software from the file; treat as facts and explain them):",
                   ctx["signals_text"]]

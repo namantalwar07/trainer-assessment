@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import re
 
 ROLES = ("operator", "reviewer", "admin")
 _N, _R, _P = 2**14, 8, 1
@@ -29,10 +28,6 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def password_policy_error(password: str) -> str | None:
-    if len(password) < 12:
-        return "Password must be at least 12 characters"
-    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
-        return "Password must contain letters and digits"
-    if len(set(password)) < 5:
-        return "Password is too repetitive"
+    if len(password) < 6:
+        return "Password must be at least 6 characters (digits or letters)"
     return None

@@ -16,6 +16,11 @@
 <div class="tbl-wrap" id="listwrap" hidden><table><thead><tr><th>File</th><th>Language</th><th>Invoice row</th><th style="min-width:220px">Progress</th><th></th></tr></thead><tbody id="list"></tbody></table></div>
 <div class="row" style="margin-top:14px" id="actions" hidden><button id="go">Upload all</button><button class="ghost" id="clear">Clear list</button><span class="small" id="summary"></span></div>
 </div>
+<div class="card"><h2>Or add from a OneDrive / SharePoint link</h2>
+<p class="small" style="margin-top:0">Paste one link per line. Each link must be shared as <b>Anyone with the link can view</b>; the server downloads the video itself, so your own internet speed does not matter. It uses the language, city, trainer, module and date chosen above.</p>
+<textarea id="links" rows="3" placeholder="https://1drv.ms/v/s!...&#10;https://yourcompany.sharepoint.com/:v:/g/personal/..."></textarea>
+<div class="row" style="margin-top:10px"><button id="golink">Add from links</button><span class="small" id="linksum"></span></div>
+<div class="tbl-wrap" id="linkwrap" hidden style="margin-top:10px"><table><thead><tr><th>Link</th><th>Result</th></tr></thead><tbody id="linklist"></tbody></table></div></div>
 <div class="card"><h2>Checklist before uploading</h2><ul class="mute" style="margin:0;padding-left:18px">
 <li>Recording has working audio and covers the whole session (typically 60–90 minutes).</li>
 <li>Trainer ID and session date are filled in above (or from a standard file name). They are used to match the invoice sheet.</li>
@@ -67,6 +72,19 @@ $('go').onclick=async()=>{busy=true;render();
   const worker=async()=>{while(queue.length)await send(queue.shift())};
   await Promise.all([worker(),worker()]);busy=false;render();
   if(items.some(i=>i.state==='done'))$('summary').innerHTML+=' · <a href="/sessions">View sessions →</a>'};
+$('golink').onclick=async()=>{
+  const urls=$('links').value.split(/\s+/).map(x=>x.trim()).filter(Boolean); if(!urls.length)return;
+  $('golink').disabled=true; $('linkwrap').hidden=false; $('linklist').innerHTML='';
+  const rows=urls.map(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td style="word-break:break-all">${esc(u.slice(0,90))}</td><td>Waiting…</td>`;$('linklist').appendChild(tr);return tr});
+  let ok=0;
+  for(let i=0;i<urls.length;i++){ const cell=rows[i].children[1]; cell.textContent='Downloading and checking… this can take a few minutes for a large video';
+    const fd=new FormData(); fd.append('url',urls[i]); fd.append('language',$('lang').value); fd.append('city',$('city').value);
+    fd.append('trainer',$('trainer').value); fd.append('module',$('module').value); fd.append('session_date',$('sdate').value);
+    try{const r=await fetch('/api/upload-link',{method:'POST',headers:{'X-CSRF-Token':csrf},body:fd}); let j={}; try{j=await r.json()}catch{}
+      if(j.ok){ok++;cell.innerHTML=`<span class="ok">Queued as ${esc(j.video_id)}</span> <small>(${esc(j.filename||'')})</small>`}
+      else cell.innerHTML=`<span class="bad">${esc(j.message||('Failed (HTTP '+r.status+')'))}</span>`;
+    }catch{cell.innerHTML='<span class="bad">Network problem. Try this link again.</span>'}}
+  $('linksum').innerHTML=`${ok} of ${urls.length} added`+(ok?' · <a href="/sessions">View sessions →</a>':''); $('golink').disabled=false;};
 window.addEventListener('beforeunload',e=>{if(busy){e.preventDefault();e.returnValue=''}});
 </script>
 {% endblock %}

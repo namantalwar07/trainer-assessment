@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import audit
+from app.chunking import merge_extractions, part_note, slice_signals, split_video
 from app.config import Settings
 from app.db import (
     Assessment,
@@ -52,11 +55,11 @@ def parse_model_json(text: str) -> dict:
 
 
 def with_backoff(fn: Callable, settings: Settings, sleep: Callable[[float], None]):
-    for attempt in range(4):
+    for attempt in range(6):  # waits 5, 10, 20, 40, 80 s: rides out a short network or API outage
         try:
             return fn()
         except TransientError:
-            if attempt == 3:
+            if attempt == 5:
                 raise
             sleep(settings.backoff_base_seconds * 2**attempt)
 
@@ -82,8 +85,7 @@ def _finish(job: ProcessingJob, status: str, error: str | None = None) -> None:
 def run_job(job_id: str, *, sm: sessionmaker, settings: Settings, storage, engine: AssessmentEngine,
             rubric: Rubric, sleep: Callable[[float], None] = time.sleep) -> None:
     db: Session = sm()
-    handle = None
-    uploaded: UploadedFile | None = None
+    handles: list = []  # (Files API handle, its UploadedFile row) for every part analysed
     try:
         job = db.get(ProcessingJob, job_id)
         sess = job.session
@@ -124,26 +126,53 @@ def run_job(job_id: str, *, sm: sessionmaker, settings: Settings, storage, engin
             ctx["signals_text"] = signals_for_prompt(signals)
             db.commit()
 
-            handle = with_backoff(lambda: engine.prepare_video(Path(local_path), MIME[sess.storage_key.rsplit(".", 1)[-1]]),
-                                  settings, sleep)
-            uploaded = UploadedFile(job_id=job.id, files_api_name=handle.name, uri=handle.uri, state=handle.state)
-            db.add(uploaded)
-            db.commit()
-
-            extract_prompt = build_extract_prompt(ctx)
-            ex = with_backoff(lambda: engine.extract(handle, extract_prompt, ctx), settings, sleep)
-            extract_path = ex.api_path or engine.api_path
-            _add_usage(usage, "extract", ex.usage)
-            job.api_path = extract_path
-            db.add(ModelOutputRaw(job_id=job.id, stage="extract", attempt=1, text=ex.text,
-                                  token_usage=ex.usage.as_dict()))
-            db.commit()
+            mime = MIME[sess.storage_key.rsplit(".", 1)[-1]]
+            parts_dir = settings.data_dir / "tmp" / f"parts_{job.id[:8]}"
+            try:
+                chunks = split_video(Path(local_path), parts_dir, v.duration_seconds, settings.chunk_minutes * 60)
+                if len(chunks) > 1:
+                    log.info("job %s long recording: watching in %d parts", job.id[:8], len(chunks))
+                part_texts: list[tuple[str, float]] = []
+                extract_path = engine.api_path
+                for i, ch in enumerate(chunks, 1):
+                    done = db.scalar(select(ModelOutputRaw).where(
+                        ModelOutputRaw.job_id == job.id, ModelOutputRaw.stage == "extract",
+                        ModelOutputRaw.attempt == i))
+                    if done:  # a retried job keeps the parts it already paid for
+                        log.info("job %s part %d/%d already analysed: reusing it", job.id[:8], i, len(chunks))
+                        part_texts.append((done.text, ch.offset))
+                        tu = done.token_usage or {}
+                        _add_usage(usage, "extract", TokenUsage(tu.get("input", 0), tu.get("output", 0),
+                                                                tu.get("thinking", 0)))
+                        continue
+                    pctx = dict(ctx)
+                    if len(chunks) > 1:
+                        end = ch.offset + ch.duration
+                        pctx.update(duration_seconds=ch.duration, part_note=part_note(i, len(chunks), ch.offset, end),
+                                    signals_text=signals_for_prompt(slice_signals(signals, ch.offset, end)))
+                    h = with_backoff(lambda path=ch.path: engine.prepare_video(path, mime), settings, sleep)
+                    up = UploadedFile(job_id=job.id, files_api_name=h.name, uri=h.uri, state=h.state)
+                    db.add(up)
+                    handles.append((h, up))
+                    db.commit()
+                    ex_i = with_backoff(lambda hh=h, pc=pctx: engine.extract(hh, build_extract_prompt(pc), pc),
+                                        settings, sleep)
+                    extract_path = ex_i.api_path or engine.api_path
+                    _add_usage(usage, "extract", ex_i.usage)
+                    db.add(ModelOutputRaw(job_id=job.id, stage="extract", attempt=i, text=ex_i.text,
+                                          token_usage=ex_i.usage.as_dict()))
+                    job.api_path = extract_path
+                    db.commit()
+                    part_texts.append((ex_i.text, ch.offset))
+            finally:
+                shutil.rmtree(parts_dir, ignore_errors=True)
+            extract_text = part_texts[0][0] if len(part_texts) == 1 else merge_extractions(part_texts)
 
         # Stage 2 is text only: schema failures are retried here without re-reading the video.
         payload, notes, errors, retries = None, [], ["no attempt"], 0
         score_usage = TokenUsage()
         for attempt in range(1, settings.max_validation_retries + 2):
-            score_prompt = build_score_prompt(ctx, rubric, settings, ex.text, feedback=None if attempt == 1 else errors)
+            score_prompt = build_score_prompt(ctx, rubric, settings, extract_text, feedback=None if attempt == 1 else errors)
             res = with_backoff(lambda prompt=score_prompt: engine.score(prompt, ctx), settings, sleep)
             score_usage = TokenUsage(score_usage.input_tokens + res.usage.input_tokens,
                                      score_usage.output_tokens + res.usage.output_tokens,
@@ -233,11 +262,11 @@ def run_job(job_id: str, *, sm: sessionmaker, settings: Settings, storage, engin
             _finish(job, "failed", f"{type(e).__name__}: {str(e)[:500]}")
             db.commit()
     finally:
-        if handle is not None:  # Files API cleanup on every terminal state
-            engine.release(handle)
-            if uploaded is not None:
-                uploaded.deleted_at = utcnow()
-                db.commit()
+        for h, up in handles:  # Files API cleanup on every terminal state
+            engine.release(h)
+            up.deleted_at = utcnow()
+        if handles:
+            db.commit()
         db.close()
 
 

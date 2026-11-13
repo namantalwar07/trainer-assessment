@@ -64,7 +64,7 @@ class Settings:
     embedded_worker: bool = True
     worker_concurrency: int = 2
     max_validation_retries: int = 3
-    backoff_base_seconds: float = 2.0
+    backoff_base_seconds: float = 5.0
     # --- scoring policy (all configurable) ---
     score_floor_mode: str = "accept"  # accept | zero_anchor
     band_rounding_rule: str = "threshold"  # threshold | round_half_up
@@ -84,6 +84,7 @@ class Settings:
     gap_tolerance_seconds: int = 120  # pauses up to this long are forgiven (counted as effective)
     gap_flag_seconds: int = 150  # pauses of at least this long are flagged (2.5 min)
     count_participant_activity_as_effective: bool = True  # trainer present while participants do an exercise
+    chunk_minutes: float = 65.0  # recordings longer than ~1.15x this are watched in parts (0 = never split)
     silent_flag_seconds: int = 60  # trainer saying nothing for this long is listed for review
     technical_review_minutes: float = 10.0  # review if this much of the recording is a technical problem
     conduct_review_events: int = 3  # review if this many conduct events are observed
@@ -138,7 +139,7 @@ class Settings:
             embedded_worker=_bool(g("EMBEDDED_WORKER"), True),
             worker_concurrency=int(g("WORKER_CONCURRENCY", "2")),
             max_validation_retries=int(g("MAX_VALIDATION_RETRIES", "3")),
-            backoff_base_seconds=float(g("BACKOFF_BASE_SECONDS", "2")),
+            backoff_base_seconds=float(g("BACKOFF_BASE_SECONDS", "5")),
             score_floor_mode=g("SCORE_FLOOR_MODE", "accept"),
             band_rounding_rule=g("BAND_ROUNDING_RULE", "threshold"),
             min_coverage_points=float(g("MIN_COVERAGE_POINTS", "70")),
@@ -155,6 +156,7 @@ class Settings:
             gap_tolerance_seconds=int(g("GAP_TOLERANCE_SECONDS", "120")),
             gap_flag_seconds=int(g("GAP_FLAG_SECONDS", "150")),
             count_participant_activity_as_effective=_bool(g("COUNT_PARTICIPANT_ACTIVITY_AS_EFFECTIVE"), True),
+            chunk_minutes=float(g("CHUNK_MINUTES", "65")),
             silent_flag_seconds=int(g("TRAINER_SILENT_FLAG_SECONDS", "60")),
             technical_review_minutes=float(g("TECHNICAL_REVIEW_MINUTES", "10")),
             conduct_review_events=int(g("CONDUCT_REVIEW_EVENTS", "3")),

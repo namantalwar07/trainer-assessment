@@ -67,7 +67,9 @@ def classify(exc: Exception) -> Exception:
     """Map SDK/network errors to TransientError (retry with backoff) or a clear fatal RuntimeError."""
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     msg = str(exc)[:400]
-    if code in _TRANSIENT_HTTP or isinstance(exc, TimeoutError | ConnectionError):
+    local_fault = isinstance(exc, FileNotFoundError | PermissionError | IsADirectoryError | NotADirectoryError)
+    if code in _TRANSIENT_HTTP or isinstance(exc, TimeoutError | ConnectionError) or (
+            isinstance(exc, OSError) and not local_fault):  # e.g. [Errno 65] No route to host: the network dropped
         return TransientError(msg)
     if any(s in msg.lower() for s in ("timed out", "timeout", "connection", "temporarily", "unavailable")):
         return TransientError(msg)
