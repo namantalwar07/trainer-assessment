@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hmac
+import json
 import re
 import secrets
 from contextlib import asynccontextmanager
@@ -34,7 +37,7 @@ from app.db import (
 from app.ingest import ingest_upload
 from app.invoices import TEMPLATE_CSV, InvoiceError, import_csv, link_matches, link_row, parse_date, parse_time
 from app.invoices import normalise_trainer_code as TRAINER_CODE
-from app.linkfetch import LinkError, open_link
+from app.linkfetch import NO_ACCESS, GraphAccess, LinkError, open_item, open_link
 from app.logging_setup import setup_logging
 from app.pipeline import rebuild_report, retry_job, review_for
 from app.reports.excel import batch_path, regenerate_workbook
@@ -55,6 +58,9 @@ TEMPLATES.env.globals.update(STATE_COLORS=STATE_COLORS, STATE_LABELS=STATE_LABEL
 
 class NotAuthenticated(Exception):
     pass
+
+
+MAX_FOLDER_FILES = 50  # videos queued from one folder link in one go (each costs money to analyse)
 
 
 def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
@@ -239,16 +245,73 @@ def create_app(settings: Settings | None = None, engine=None) -> FastAPI:
         return JSONResponse({"ok": r.ok, "message": r.message, "video_id": r.video_id},
                             status_code=200 if r.ok else 422)
 
+    def _graph():
+        return (GraphAccess(settings.ms_tenant_id, settings.ms_client_id, settings.ms_client_secret)
+                if settings.graph_enabled else None)
+
+    def _sign(drive: str, item: str) -> str:
+        body = base64.urlsafe_b64encode(json.dumps([drive, item]).encode()).decode()
+        mac = hmac.new(settings.session_secret.encode(), body.encode(), "sha256").hexdigest()[:32]
+        return f"{body}.{mac}"
+
+    def _unsign(token: str) -> tuple[str, str]:
+        body, _, mac = (token or "").partition(".")
+        good = hmac.new(settings.session_secret.encode(), body.encode(), "sha256").hexdigest()[:32]
+        if not hmac.compare_digest(mac, good):
+            raise HTTPException(400, "Invalid file token")
+        drive, item = json.loads(base64.urlsafe_b64decode(body))
+        return drive, item
+
+    app.state.sign_item = _sign
+
+    @app.post("/api/link-expand")
+    def api_link_expand(request: Request, url: str = Form(...), user: User = Depends(operator_up),
+                        db: Session = Depends(get_db)):
+        """Tell the upload page whether a pasted link is one video or a folder, and list a folder's videos."""
+        check_csrf(request, request.headers.get("x-csrf-token", ""))
+        g = _graph()
+        if g is None or "sharepoint.com" not in url.lower():
+            return JSONResponse({"ok": True, "kind": "file"})
+        try:
+            found = g.resolve(url.strip())
+        except LinkError as e:
+            if str(e) == NO_ACCESS:  # maybe a public single-file link: let the normal path decide
+                return JSONResponse({"ok": True, "kind": "file"})
+            return JSONResponse({"ok": False, "message": str(e)}, status_code=422)
+        if found["kind"] == "file":
+            return JSONResponse({"ok": True, "kind": "file"})
+        files = found["files"][:MAX_FOLDER_FILES]
+        audit.record(db, user, "folder_listed", "file", url[:100], {"videos": len(found["files"])}, ip(request))
+        return JSONResponse({"ok": True, "kind": "folder", "total": len(found["files"]), "capped": len(found["files"]) > len(files),
+                             "files": [{"name": f["name"], "size": f["size"], "token": _sign(f["drive"], f["id"])} for f in files]})
+
     @app.post("/api/upload-link")
-    def api_upload_link(request: Request, url: str = Form(...), language: str = Form(...), city: str = Form(""),
-                        trainer: str = Form(""), module: str = Form(""), session_date: str = Form(""),
+    def api_upload_link(request: Request, url: str = Form(""), item: str = Form(""), language: str = Form(...),
+                        city: str = Form(""), trainer: str = Form(""), module: str = Form(""), session_date: str = Form(""),
                         user: User = Depends(operator_up), db: Session = Depends(get_db)):
-        """Fetch a recording from an 'anyone with the link' OneDrive/SharePoint share and queue it like an upload."""
+        """Fetch a recording from a OneDrive/SharePoint link (or one file of a listed folder) and queue it like an upload."""
         check_csrf(request, request.headers.get("x-csrf-token", ""))
         if language not in LANGUAGES:
             raise HTTPException(400, "Unknown language")
+        if item:
+            drive, item_id = _unsign(item)
+            g = _graph()
+            if g is None:
+                raise HTTPException(400, "Folder access is not set up")
+            try:
+                resp, name = open_item(g, drive, item_id)
+            except LinkError as e:
+                audit.record(db, user, "upload_link_rejected", "file", item_id[:100], {"reason": str(e)}, ip(request))
+                return JSONResponse({"ok": False, "message": str(e), "video_id": None}, status_code=422)
+            try:
+                r = ingest_upload(db, settings, storage, user, name, resp, language, city, ip(request),
+                                  trainer=trainer, module=module, session_date=session_date)
+            finally:
+                resp.close()
+            return JSONResponse({"ok": r.ok, "message": r.message, "video_id": r.video_id, "filename": name},
+                                status_code=200 if r.ok else 422)
         try:
-            resp, name = open_link(url)
+            resp, name = open_link(url, graph=_graph())
         except LinkError as e:
             audit.record(db, user, "upload_link_rejected", "file", url[:100], {"reason": str(e)}, ip(request))
             return JSONResponse({"ok": False, "message": str(e), "video_id": None}, status_code=422)

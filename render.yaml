@@ -14,6 +14,9 @@ services:
       - {key: PORT, value: "8000"}
       - {key: MOCK_GEMINI, value: "false"}
       - {key: GEMINI_API_KEY, sync: false}      # paste in the Render dashboard, never in git
+      - {key: MS_TENANT_ID, sync: false}        # optional: private OneDrive links (see README)
+      - {key: MS_CLIENT_ID, sync: false}
+      - {key: MS_CLIENT_SECRET, sync: false}
       - {key: SESSION_SECRET, generateValue: true}
       - {key: COOKIE_SECURE, value: "true"}
       - {key: DATA_DIR, value: /srv/data}

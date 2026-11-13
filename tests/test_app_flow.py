@@ -11,7 +11,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db import Assessment, AuditLog, Module, User
 from app.security import hash_password
@@ -365,8 +365,42 @@ class _Share:
             def log_message(self, *a):  # noqa: ANN002
                 pass
 
+            def path_hint(self):
+                import base64
+                enc = self.path.split("/shares/u!")[1].split("/")[0]
+                return base64.urlsafe_b64decode(enc + "=" * (-len(enc) % 4)).decode()
+
+            def do_POST(self):  # noqa: N802
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"access_token": "tok"}')
+
             def do_GET(self):  # noqa: N802
-                if self.path.startswith("/video"):
+                if "/shares/" in self.path and self.path_hint().endswith("/folder") and "children" in self.path:
+                    self.send_response(200)
+                    self.end_headers()
+                    port = self.server.server_port
+                    self.wfile.write(('{"value": [{"name": "b.mp4", "size": 9, "id": "I2", "file": {}, "parentReference": {"driveId": "D"}},'
+                                      '{"name": "notes.txt", "id": "I3", "file": {}}, {"name": "sub", "id": "I4", "folder": {}},'
+                                      '{"name": "a.mov", "size": 5, "id": "I1", "file": {}, "parentReference": {"driveId": "D"}}]}').encode())
+                elif "/shares/" in self.path and self.path_hint().endswith("/folder"):
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'{"name": "Recordings", "folder": {}, "id": "F"}')
+                elif "/drives/D/items/" in self.path:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(('{"name": "From Folder.mp4", "@microsoft.graph.downloadUrl": "http://127.0.0.1:%d/video"}'
+                                      % self.server.server_port).encode())
+                elif "/shares/" in self.path:
+                    ok = self.headers.get("Authorization") == "Bearer tok" and "private" in self.path_hint()
+                    self.send_response(200 if ok else 403)
+                    self.end_headers()
+                    if ok:
+                        self.wfile.write(('{"name": "Private Session.mp4", "@microsoft.graph.downloadUrl": "http://127.0.0.1:%d/video"}'
+                                          % self.server.server_port).encode())
+                elif self.path.startswith("/video"):
                     self.send_response(200)
                     self.send_header("Content-Type", "video/mp4")
                     self.send_header("Content-Disposition", "attachment; filename=\"Mentoring Session 20260916.mp4\"")
@@ -417,6 +451,55 @@ def test_link_fetch_downloads_names_and_refuses_unsafe_links():
         open_link("https://evil-sharepoint.com.attacker.net/x")
 
 
+def test_private_link_is_read_through_the_company_account():
+    from app.linkfetch import GraphAccess, LinkError, open_link
+    share = _Share(fake_mp4(5))
+    try:
+        g = GraphAccess("t", "c", "s", base=share.url, token_url=share.url + "/token")
+        kw = {"allowed": ("127.0.0.1",), "https_only": False, "graph": g}
+        resp, name = open_link(share.url + "/private/file", **kw)
+        assert name == "Private Session.mp4" and resp.read(8)[4:8] == b"ftyp"
+        resp.close()
+        with pytest.raises(LinkError, match="company account cannot open"):
+            open_link(share.url + "/other/file", **kw)  # not granted to the app, and not a public link either
+        resp, name = open_link(share.url + "/video", **kw)  # no access via the app: falls back to a public share
+        assert name == "Mentoring Session 20260916.mp4"
+        resp.close()
+    finally:
+        share.close()
+
+
+def test_folder_link_lists_videos_and_each_is_queued(settings, monkeypatch):
+    import app.web as web
+    from app.db import VideoSession
+    from app.linkfetch import GraphAccess, open_item
+    share = _Share(fake_mp4(6))
+    try:
+        g = GraphAccess("t", "c", "s", base=share.url, token_url=share.url + "/token")
+        found = g.resolve(share.url + "/x/folder")
+        assert found["kind"] == "folder" and [f["name"] for f in found["files"]] == ["a.mov", "b.mp4"]  # videos only
+        monkeypatch.setattr(web, "GraphAccess", lambda *a, **k: g)
+        monkeypatch.setattr(web, "open_item",
+                            lambda gr, d, i: open_item(gr, d, i, allowed=("127.0.0.1",), https_only=False))
+        a = create_app(replace(settings, embedded_worker=False, ms_tenant_id="t", ms_client_id="c", ms_client_secret="s"))
+        with a.state.sm() as db:
+            db.add(User(email="operator@t.test", role="operator", password_hash=hash_password(PW)))
+            db.commit()
+        op = login(a, "operator")
+        h = {"X-CSRF-Token": csrf_of(op, "/upload")}
+        e = op.post("/api/link-expand", data={"url": "https://x.sharepoint.com/folder"}, headers=h).json()
+        assert e["kind"] == "folder" and [f["name"] for f in e["files"]] == ["a.mov", "b.mp4"]
+        r = op.post("/api/upload-link", data={"item": e["files"][1]["token"], "language": "Hindi"}, headers=h)
+        assert r.status_code == 200 and r.json()["ok"] and r.json()["filename"] == "From Folder.mp4"
+        assert op.post("/api/upload-link", data={"item": "forged.token", "language": "Hindi"}, headers=h).status_code == 400
+        forged = a.state.sign_item("D", "I1")[:-1] + "0"
+        assert op.post("/api/upload-link", data={"item": forged, "language": "Hindi"}, headers=h).status_code == 400
+        with a.state.sm() as db:
+            assert db.scalar(select(func.count()).select_from(VideoSession)) == 1
+    finally:
+        share.close()
+
+
 def test_direct_url_rewriting_for_sharepoint_and_onedrive():
     import urllib.request
 
@@ -443,7 +526,7 @@ def test_upload_from_link_queues_with_name_and_date_from_the_file(app, monkeypat
     from app.db import VideoSession
     from app.linkfetch import open_link
     share = _Share(fake_mp4(6))
-    monkeypatch.setattr(web, "open_link", lambda u: open_link(u, allowed=("127.0.0.1",), https_only=False))
+    monkeypatch.setattr(web, "open_link", lambda u, **kw: open_link(u, allowed=("127.0.0.1",), https_only=False))
     try:
         op = login(app, "operator")
         r = op.post("/api/upload-link", data={"url": share.url + "/video", "language": "Hindi"},

@@ -17,7 +17,7 @@
 <div class="row" style="margin-top:14px" id="actions" hidden><button id="go">Upload all</button><button class="ghost" id="clear">Clear list</button><span class="small" id="summary"></span></div>
 </div>
 <div class="card"><h2>Or add from a OneDrive / SharePoint link</h2>
-<p class="small" style="margin-top:0">Paste one link per line. Each link must be shared as <b>Anyone with the link can view</b>; the server downloads the video itself, so your own internet speed does not matter. It uses the language, city, trainer, module and date chosen above.</p>
+<p class="small" style="margin-top:0">Paste one link per line: a single video, or a <b>folder</b> link, in which case every video in it is queued (up to 50 at a time; each costs about ₹40–100 to analyse). Each link must be shared as <b>Anyone with the link can view</b> (or sit in the folder the company has given this tool access to); the server downloads the video itself, so your own internet speed does not matter. It uses the language, city, trainer, module and date chosen above.</p>
 <textarea id="links" rows="3" placeholder="https://1drv.ms/v/s!...&#10;https://yourcompany.sharepoint.com/:v:/g/personal/..."></textarea>
 <div class="row" style="margin-top:10px"><button id="golink">Add from links</button><span class="small" id="linksum"></span></div>
 <div class="tbl-wrap" id="linkwrap" hidden style="margin-top:10px"><table><thead><tr><th>Link</th><th>Result</th></tr></thead><tbody id="linklist"></tbody></table></div></div>
@@ -74,17 +74,28 @@ $('go').onclick=async()=>{busy=true;render();
   if(items.some(i=>i.state==='done'))$('summary').innerHTML+=' · <a href="/sessions">View sessions →</a>'};
 $('golink').onclick=async()=>{
   const urls=$('links').value.split(/\s+/).map(x=>x.trim()).filter(Boolean); if(!urls.length)return;
-  $('golink').disabled=true; $('linkwrap').hidden=false; $('linklist').innerHTML='';
-  const rows=urls.map(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td style="word-break:break-all">${esc(u.slice(0,90))}</td><td>Waiting…</td>`;$('linklist').appendChild(tr);return tr});
-  let ok=0;
-  for(let i=0;i<urls.length;i++){ const cell=rows[i].children[1]; cell.textContent='Downloading and checking… this can take a few minutes for a large video';
-    const fd=new FormData(); fd.append('url',urls[i]); fd.append('language',$('lang').value); fd.append('city',$('city').value);
-    fd.append('trainer',$('trainer').value); fd.append('module',$('module').value); fd.append('session_date',$('sdate').value);
-    try{const r=await fetch('/api/upload-link',{method:'POST',headers:{'X-CSRF-Token':csrf},body:fd}); let j={}; try{j=await r.json()}catch{}
-      if(j.ok){ok++;cell.innerHTML=`<span class="ok">Queued as ${esc(j.video_id)}</span> <small>(${esc(j.filename||'')})</small>`}
-      else cell.innerHTML=`<span class="bad">${esc(j.message||('Failed (HTTP '+r.status+')'))}</span>`;
-    }catch{cell.innerHTML='<span class="bad">Network problem. Try this link again.</span>'}}
-  $('linksum').innerHTML=`${ok} of ${urls.length} added`+(ok?' · <a href="/sessions">View sessions →</a>':''); $('golink').disabled=false;};
+  $('golink').disabled=true; $('linkwrap').hidden=false; $('linklist').innerHTML=''; busy=true;
+  const addRow=l=>{const tr=document.createElement('tr');tr.innerHTML=`<td style="word-break:break-all">${esc(l.slice(0,90))}</td><td>Waiting…</td>`;$('linklist').appendChild(tr);return tr.children[1]};
+  const post=async(extra)=>{const fd=new FormData(); for(const k in extra)fd.append(k,extra[k]);
+    fd.append('language',$('lang').value); fd.append('city',$('city').value); fd.append('trainer',$('trainer').value);
+    fd.append('module',$('module').value); fd.append('session_date',$('sdate').value);
+    const r=await fetch('/api/upload-link',{method:'POST',headers:{'X-CSRF-Token':csrf},body:fd}); let j={}; try{j=await r.json()}catch{}
+    return {r,j}};
+  const show=(cell,{r,j})=>{if(j.ok){cell.innerHTML=`<span class="ok">Queued as ${esc(j.video_id)}</span> <small>(${esc(j.filename||'')})</small>`;return 1}
+    cell.innerHTML=`<span class="bad">${esc(j.message||('Failed (HTTP '+r.status+')'))}</span>`;return 0};
+  let ok=0,total=0;
+  for(const u of urls){ const cell=addRow(u); cell.textContent='Checking the link…';
+    try{ const fd=new FormData(); fd.append('url',u);
+      const er=await fetch('/api/link-expand',{method:'POST',headers:{'X-CSRF-Token':csrf},body:fd}); let e={}; try{e=await er.json()}catch{}
+      if(!e.ok){cell.innerHTML=`<span class="bad">${esc(e.message||'Could not read the link')}</span>`;total++;continue}
+      if(e.kind==='folder'){
+        cell.innerHTML=`<span class="ok">Folder: ${e.files.length} video(s)</span>`+(e.capped?` <small>(only the first ${e.files.length} of ${e.total} are queued; add the link again later for the rest)</small>`:'');
+        if(!e.files.length)cell.innerHTML+=' <span class="bad">No .mp4 or .mov files in this folder</span>';
+        for(const f of e.files){ total++; const c=addRow('  '+f.name+' ('+fmt(f.size)+')'); c.textContent='Downloading and checking… this can take a few minutes for a large video';
+          try{ok+=show(c,await post({item:f.token}))}catch{c.innerHTML='<span class="bad">Network problem. Add this file again.</span>'}}
+      } else { total++; cell.textContent='Downloading and checking… this can take a few minutes for a large video'; ok+=show(cell,await post({url:u})); }
+    }catch{cell.innerHTML='<span class="bad">Network problem. Try this link again.</span>';total++}}
+  busy=false; $('linksum').innerHTML=`${ok} of ${total} added`+(ok?' · <a href="/sessions">View sessions →</a>':''); $('golink').disabled=false;};
 window.addEventListener('beforeunload',e=>{if(busy){e.preventDefault();e.returnValue=''}});
 </script>
 {% endblock %}

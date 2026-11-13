@@ -45,6 +45,10 @@ class Settings:
     session_secret: str = ""
     cookie_secure: bool = False  # set COOKIE_SECURE=true behind HTTPS
     public_base_url: str = "http://127.0.0.1:8000"  # used for report links in the Excel workbook
+    # --- optional company sign-in for private OneDrive/SharePoint links (Microsoft Graph, app-only) ---
+    ms_tenant_id: str = ""
+    ms_client_id: str = ""
+    ms_client_secret: str = ""
     # --- storage ---
     database_url: str = ""
     data_dir: Path = ROOT / "data"
@@ -100,6 +104,10 @@ class Settings:
     usd_inr: float = 90.0
 
     @property
+    def graph_enabled(self) -> bool:
+        return bool(self.ms_tenant_id and self.ms_client_id and self.ms_client_secret)
+
+    @property
     def zero_anchor(self) -> bool:
         return self.score_floor_mode == "zero_anchor"
 
@@ -123,6 +131,9 @@ class Settings:
             session_secret=g("SESSION_SECRET", "") or ("" if not mock else secrets.token_urlsafe(32)),
             cookie_secure=_bool(g("COOKIE_SECURE"), False),
             public_base_url=g("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/"),
+            ms_tenant_id=g("MS_TENANT_ID", "").strip(),
+            ms_client_id=g("MS_CLIENT_ID", "").strip(),
+            ms_client_secret=g("MS_CLIENT_SECRET", "").strip(),
             database_url=g("DATABASE_URL", ""),
             data_dir=data_dir,
             storage_backend=g("STORAGE_BACKEND", "local"),
